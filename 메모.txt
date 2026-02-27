@@ -1,0 +1,383 @@
+<공부할 것>
+1. paddleocr 구조 논문 읽어보기(yml 참고)
+2. nvidia의 MIG 기술 논문 읽어보기 
+
+<아이디어>
+1. domain-specific하게 recognition model 선택하도록 하기
+
+
+<pipeline>
+⭐ 1. 학습용 데이터 설정
+*_dataset_process -> (optional) txt_slice.py -> filter_special_letters -> ocr_rec_dataset_generator -> 
+->(optional) rotate_images -> (optional: ds_width true일 때) add_width_height_info
+
+<도커 사용법>
+1. 깨우기: docker start paddleocr
+2. 접속: docker exec -it paddleocr bash
+꿀팁) 한번에: docker start paddleocr && docker exec -it paddleocr bash
+
+3. 리스트 확인: docker ps -a
+
+그 후 cd /paddle 하여 시작 
+
+<tar 압축 및 전송>
+scp, tar -xf
+
+python train.py -c ./../../../config/PP-OCRv5_mobile_rec.yml
+
+------------------------------------------------
+
+<개발일지>
+2/5
+
+easyocr의 큰 단점: 일본어나 중국어의 세로쓰기 지원 X
+
+paddle ocr 사용해보기로 함.
+
+자꾸 vscode에서 python version kernel이 못 읽는 오류.. pip install ipykernel로 해결
+
+그리고 paddleocr은 python 3.10 이하만 지원함!
+설치는 paddleocr documentation install 참고
+https://www.paddleocr.ai/latest/en/version3.x/installation.html
+
+기본 모델 실행해봤는데, 
+detection은 괜찮은데 recognition이 구린 것 같음.
+
+recognition model tuning을 paddleocr에서 제공함. 
+
+belval/TRDG로 학습용 데이터 만들기. 
+python3 run.py [args] 형태로 생성할 수 있음. 
+
+argument 정리
+
+-or 1 : 세로로 합성할 수 있음. 
+-i [input file] : 인풋 파일을 지정할 수 있음.
+-l [언어 코드] : 언어 지정(안하면 깨짐)
+-c [개수]
+-ft 폰트 : fonts 폴더에 넣음
+
+추가할 것: 
+파일 이름 설정 / 
+
+2/6
+
+어떤 일본어 데이터로 만들 것이냐? 데이터셋을 찾아야 한다.
+
+https://huggingface.co/datasets/kinokokoro/ichikara-instruction-003
+라는 NLP-QA task용 데이터 셋을 찾았다.
+
+아 근데 라이센스가 CC-BY-NC-SA License라 Non-commercial임
+
+https://gitlab.llm-jp.nii.ac.jp/datasets/llm-jp-toxicity-dataset-v2
+
+이건 뭔 toxicity dataset이라고 유해성 진단용인데, CC BY 4.0래서 괜찮다는데 이거 가공 ㄱ
+아쉬운 점은 문장 성질이 만화와 동떨어져 있다는 거
+
+2/9
+toxicity dataset을 가공하는 toxicity_dataset_process.py를 
+src/data에 만듦.
+
+output은 data_processed에 저장됨.
+
+toxicity_dataset.jsonl 형태의 파일 전용이라, 다른 건 새로 만들어야 될 거 같음. 
+
+ocr_rec_dataset_generator.py 만듦. 
+
+2/15
+
+ocr_rec_dataset_generator.py 완성했고,
+data/processed 경로 지정해서 정답지 제작 완료!
+
+이제 trdg로 이미지 생성해야 함.
+
+(중요) 이미지 생성 시 이름을 어떻게 할 것인가?
+trdg/data_generator의 FakeTextDataGenerator class 쪽 수정
+
+"""
+# 몇 가지 수정
+        elif name_format == 3: # 3인 경우 train
+            name = f"train_{index:06d}"
+        elif name_format == 4: # 4인 경우 val
+            name = f"val_{index:06d}"
+"""
+
+1. train의 경우
+python run.py -l ja -i "./../../data/processed/filtered_japanese_sentences.txt" -c 10 -na 3 --output_dir "./../../data/processed/fine_tuning_answer_sheet/images"
+
+2. val의 경우
+python run.py -l ja -i "./../../data/processed/filtered_japanese_sentences.txt" -c 10 -na 4 --output_dir "./../../data/processed/fine_tuning_answer_sheet/images"
+
+-or 1 이나 0. 세로 비율 80%, 가로 비율 20%
+-c 전체 개수 80%만 세로로
+
+2/16
+(필터링 생각) + 데이터셋 구성 + 학습
+
+필터링이 가장 문제.. 이걸 노가다로 할 것이냐?
+
+필터링은 그냥 특정 유니코드 안에 없는 걸 대체하도록(이모지 포함)
+: 제미나이 시켜서 특정 유니코드만 패스하도록 만듦.
+
+폰트는
+font_1_ant-kaku는 Honoka antique kaku로 무료폰트임.
+Zen-antique도 SIL Open Font License 1.1 상업 이용 가능 라이센스.
+
+"The script picks a font at random from the fonts directory."이므로,
+폴더에 넣어두면 알아서 랜덤 선택함. 
+
+
+2/17
+임시 텍스트 파일 2개 생성(8:2), 이미지 생성 후 마무리되면 제거하는 형태로.. 
+
+완료!
+
+ocr_rec_dataset_generator에 두개의 함수 넣는 형태로 구현.
+
+첫번째는 
+ocr_rec_answer_label_generator
+얘는 일본어 문장만 있는 txt를 가져다가 ocr reg 학습 가능한 형태로 나누고 정답지 제작
+
+두번째는 
+run_trdg_auto
+얘는 정답지 가지고 적당히 잘라 세로, 가로 argument로 subprocess trdg/run.py 돌림
+
+2/18
+도커 사용법 익히고 설치함. ~ 드디어 잘 된다.
+
+그리고 rec 모델 쪽 보니까 japan OCRv3보다 PP-OCRv5가 더 잘 되는거 같음.
+이걸로 fine-tuning하자. 
+
+[파인튜닝]
+
+1. 일단 데이터는 지정된 형태로 준비.
+
+2. pre-train model 다운로드
+나는 모바일 사용함
+wget https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_rec_pretrained.pdparams
+
+이건 PaddleOCR 경로에 바로 저장됨.
+
+3. configuration file 받아서 수정. 모바일 꺼 받으면 됨.
+파일 경로 등 제미나이 도움 받아서 수정함. 
+
+그리고 config나 models같은 프로젝트 경로 관리 생각!
+
+4. PaddleOCR/tools/train.py를 yml 지정해서 실행해봤는데
+
+python train.py -c ./../../../config/PP-OCRv5_mobile_rec.yml
+
+내 gpu로는 학습이 너무 오래 걸림.. 
+
+2/19
+
+30 epoch로 돌린거 학습 완료됨.
+models/PP-OCRv5_mobile_rec_jp_fine_tuned에 저장됨.
+
+[2026/02/19 11:37:53] ppocr INFO: best metric, acc: 0.16060659803694968, is_float16: False, norm_edit_dis: 0.22001751692827076, fps: 475.41410411493644, best_epoch: 29
+
+"공식문서" https://www.paddleocr.ai/main/en/version3.x/module_usage/text_recognition.html#43-model-evaluation
+보고 패러미터 조절 등 확인!!
+
+이제 모델 평가(4.3)하고 모델 내보내기(4.4) 하면 됨.
+
+
+⭐중요⭐
+
+아 보니까 세로쓰기를 세로로 인식하는 게 아니라, 돌려서 인식하는 거여서 acc가 안 올라가는 거였음!
+
+그러니까 기본 가로는 가로로 인식하는데, 세로는 돌려서 인식하는 거임.
+
+그래서 학습시킬 때 "가로로 돌려 넣어서" 학습시켜야됨. 가로가 길도록!
+
+라고 gemini가 그러는데.. 그래서 돌리는 거 rotate_images.py 추가. 그냥 돌려주기만 하는 거.
+
+
+다시 학습 시작... 저번에 한 학습은 그냥 지워 버렸음..
+
+2/20
+
+학습 완료!
+
+[2026/02/20 11:16:17] ppocr INFO: best metric, acc: 0.8958555040511246, is_float16: False, norm_edit_dis: 0.990481828685345, fps: 423.57783024471814, best_epoch: 28
+로 돌려서 학습 하니까 아주 잘 됐다. 일단 이걸 v1으로..
+
+4.3 Model Evaluation
+python3 eval.py -c ./../../../config/PP-OCRv5_mobile_rec.yml -o Global.pretrained_model=./../../../models/PP-OCRv5_mobile_rec_jp_fine_tuned/best_model/model.pdparams
+
+[2026/02/20 13:26:53] ppocr INFO: metric eval ***************
+[2026/02/20 13:26:53] ppocr INFO: acc:0.8958555040511246
+[2026/02/20 13:26:53] ppocr INFO: norm_edit_dis:0.990481828685345
+[2026/02/20 13:26:53] ppocr INFO: fps:472.954412324285
+
+아까꺼랑 같은 결과기는 함
+
+4.4 Model Export
+python3 export_model.py -c ./../../../config/PP-OCRv5_mobile_rec.yml -o Global.pretrained_model="./../../../models/PP-OCRv5_mobile_rec_jp_fine_tuned/best_model/model.pdparams" Global.save_inference_dir="./../../../models/PP-OCRv5_mobile_rec_jp_fine_tuned/v1"
+
+complete_model이 일단 완성본. 
+
+(⭐내 모델 사용하기⭐)
+https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/OCR.html#41-model-fine-tuning
+여기의 4.2절 따라서 하자.. 이건 내일 해보고
+
+오늘은 일단 추가 데이터셋 가져온 거 확인
+JParaCrawl_dataset_process 만들어서, 마찬가지로 data_processed에 저장
+그런데 이건 파일이 워낙 커서, 원본을 다른 데 두던가 해야 될 거 같음.
+Emeditor로 열어서 봄.
+
+참고) JParaCrawl은 상업적 이용이 금지되어 있다. 
+
+용량이 너무 커서, 최종본만 남기고 지울 예정.
+raw data는 https://www.kecl.ntt.co.jp/icl/lirg/jparacrawl/의 English-Japanese training set (v3.0, 22M sentences, deduped) 사용함.
+
+일단 japanese_sentence_toxicity.txt 만드는 것까지는 완료
+
+2/21
+
+⭐중요⭐
+<fine-tuning한거 export 한 후 파이프라인에 넣고 돌리는 법>
+
+export한 
+
+inference.json
+inference.pdiparams
+inference.yml에서
+
+yml만 원래 모델 이름(이 경우는 PP-ocrv5_mobile_rec)으로 바꿔 준 다음,
+
+text_recognition_model_dir="./../../models/PP-OCRv5_mobile_rec_jp_fine_tuned/complete_model",
+text_recognition_model_name="PP-OCRv5_mobile_rec",
+
+이렇게 지정해주면 된다.
+
+하 근데 recognition 모델이 아예 글씨 인식을 못 한다... github에 물어봄
+
+2/22
+
+일단 문제 분석
+❗❗Recognition train 결과 문제❗❗
+
+recognition 모델만 확인하는 코드 paddleocr_rec_only_demo.py 만들어서 확인해봄.
+
+결과가 한두글자만 나오거나 함.
+
+제미나이 원인 분석)
+
+1. max_text_length 제한 문제 (가장 유력)
+
+max_length 문제인데, 이건 25라 괜찮음.
+
+2. image_shape 너비 부족 (이미지 압축)
+inference.yml과 학습 설정 모두 가로 너비가 **320**으로 고정되어 있습니다.
+
+-> 640으로 늘렸음.
+
+다시 데이터셋 새로 만들자.
+
+이제 trdg 모듈 돌리는 ocr_rec_dataset_process만 돌려서 만들면 데이터셋 완료.
+
+2/23
+
+ocr_rec_dataset_process 돌려서 이미지 만드는 중.. 
+
+GPU 좀 쓰려고 정보화지원실에 메일 씀 A100 대여용
+
+생성할 동안 번역까지 생각한 이슈가 있음
+
+❗❗만화 ocr 파이프라인 문제 ❗❗
+
+1. 만약 저걸 detection model이 3줄을 한번에 잡아버리면,
+그 이후 recognition 모델이 문제야. 이걸 3줄로 보고 하면 당연히 제대로 인식이 안 되겠지. 
+ 
+2. 1줄 따로따로 잡으면 recognition 모델에선 문제가 없는데, 번역이 문제야. 
+이걸 묶어서 번역해야 제대로 번역할 수 있는데, 이게 동일 문장에 줄바꿈이 있다는 걸 얘가 제대로 알까?
+
+⭐ 일본어 세로쓰기는 세로로 돌려 넣어야 합니다 ⭐
+https://github.com/PaddlePaddle/PaddleOCR/discussions/15690
+
+
+2/25
+
+일단 vessl ai 설정법 공부하자. 
+
+paddleocr workspace 만듦.
+
+아무거나로 도커 이미지 만든 다음 라이브러리를 설치
+
+❗❗ 마지막줄은 도커 이미지나 nvidia-smi 랑 호환 버전으로 설치해야 함 ❗❗
+apt-get update && apt-get install -y libgl1-mesa-glx libgomp1
+cd ~/external/PaddleOCR
+pip install -r requirements.txt
+pip install paddlepaddle-gpu==2.6.0.post120 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+
+⭐ vessl.ai ssh를 vscode로 연결하기 ⭐
+1. ssh 키 만들기
+ssh-keygen -t ed25519 -C "vessl-victini00"
+
+2. vessl 계정에 ssh 키 추가
+2-1 일단 
+pip install --upgrade vessl
+vessl configure
+
+2-2
+vessl ssh-key add
+
+근데 이 단계에서 잘 안돼서..
+$ /c/Users/a/AppData/Roaming/Python/Python310/Scripts/vessl configure
+직접 설치 경로까지 가서 명령어 실행해줌.
+
+하면 조직이랑 프로젝트 지정 가능. 
+⭐ /c/Users/a/AppData/Roaming/Python/Python310/Scripts/vessl로 실행해주면 됨!
+
+3. ssh로 연결하기! ~ vscode
+/c/Users/a/AppData/Roaming/Python/Python310/Scripts/vessl workspace vscode
+linux 선택해야 됨.
+
+그런데 scp로 옮기려고 하니까 너무 느려서 안되겠다..
+⭐ scp는 파일 개수에도 영향을 받아서, tar로 압축하고 보내면 훨씬 빠르다!
+
+좋아 다 보내서 하려는데..
+
+⭐⭐ ds_width (가변 길이 학습)을 true로 해서 학습하려면
+answer sheet에 사이즈 정보까지 추가해줘야 함.
+
+그래서, label에 size 정보를 추가해주는 함수인 add_width_height_info.py 만듦.
+
+------
+
+그렇게 label 추가도 했고, ds_width = true로 해서 돌리려는데 
+무슨 이상한 오류 떠서 보니까 gpu 메모리 오류래..
+
+근데아직도안돼..
+
+export FLAGS_allocator_strategy=auto_growth
+export FLAGS_fraction_of_gpu_memory_to_use=0.8
+export FLAGS_cudnn_deterministic=True
+export NVIDIA_TF32_OVERRIDE=0
+export FLAGS_enable_cublas_tensor_op_math=False
+
+원인은 대충 dict oov 문제인 거 같음. 이거 고쳐서 돌려 보자. 
+보니까 dict에, train, val answer label의 단어들이 제대로 안 들어간 거 같음. 
+
+2/26
+
+개뻘짓중...
+
+⭐⭐ 일단 오늘 한 것 중요 2개
+1. ds_width가 true면 VRAM을 테라 단위로 먹어버린다. 이건 불가능.
+2. 드라이버 CUDA랑 paddle CUDA의 버전이 맞아야 한다...?
+
+nvidia-smi
+python -c "import paddle; print(paddle.version.cuda())"
+일단 아래 2개가 호환이 되는 것이 좋아 보임.
+
+pip install paddlepaddle-gpu==2.5.0.post118 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+pip install paddlepaddle-gpu==2.6.0.post120 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+
+⭐⭐❗❗
+동일 설정에서 로컬에서 돌아가는 거 +
+CUDA 맞춤 + 데이터 확인했을 때 문제 없음 
+
+클로드한테 물어보니 MIG 문제인 거 같다고 (gpu를 나눠 쓰는 vessl)..
+
+그래서 light 유저 말고 heavy user로 사용해보기로 하였다. 미치것다..

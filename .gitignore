@@ -1,0 +1,9 @@
+output/*
+!output/.gitkeep
+models/*
+!models/.gitkeep
+legacy/EasyOCR/
+external/*
+!external/.gitkeep
+data/*
+!data/.gitkeep
