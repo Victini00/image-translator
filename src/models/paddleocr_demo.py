@@ -6,8 +6,8 @@ def main():
     parser = argparse.ArgumentParser(description="PaddleOCR 실행 스크립트")
     parser.add_argument('--det', type=str, default="PP-OCRv5_mobile_det")
     parser.add_argument('--rec', type=str, default="PP-OCRv5_mobile_rec")
-    parser.add_argument('--img', type=str, default="./../../data/raw/images/shirobako_clockwise.png")
-    parser.add_argument('--out', type=str, default="./../../output/v1")
+    parser.add_argument('--img', type=str, default="./../../data/raw/images/shirobako.jpg")
+    parser.add_argument('--out', type=str, default="./../../output/v4")
     parser.add_argument('--lang', type=str, default="japan")
     args = parser.parse_args()
 
@@ -25,7 +25,7 @@ def main():
         lang=args.lang,
         # use_gpu=True
     )
-    '''
+    
     # v1
     ocr = PaddleOCR(
         use_doc_orientation_classify=True,
@@ -33,6 +33,19 @@ def main():
         use_textline_orientation=True,
         text_detection_model_name=args.det,
         text_recognition_model_dir="./../../models/PP-OCRv5_mobile_rec_jp_fine_tuned/complete_model",
+        text_recognition_model_name="PP-OCRv5_mobile_rec",
+        lang=args.lang,
+    )
+
+    '''
+
+    # v4
+    ocr = PaddleOCR(
+        use_doc_orientation_classify=True,
+        use_doc_unwarping=False,
+        use_textline_orientation=True,
+        text_detection_model_name=args.det,
+        text_recognition_model_dir="./../../models/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/complete_model",
         text_recognition_model_name="PP-OCRv5_mobile_rec",
         lang=args.lang,
     )
