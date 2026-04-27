@@ -510,3 +510,98 @@ ultralytics 패키지 하나만 설치하면 됨
 '''
 를 사용한 걸로 만들어 달라고 함. 
 
+4/7
+
+번역 모델 선정
+QWEN: LLM임. LORA 사용의 유용도는 낮지만 압도적인 성능. 만약 잘 안되면 이걸로 그냥 써도 될 듯.
+NLLB: 얘는 로컬인데 상업 사용이 불가능하다고 한다. 
+그래서 상업 사용 madlad가 있음
+Apache 2.0 — 상업적 사용 완전 자유
+T5 기반이라 LoRA 호환 최고 (가장 잘 문서화된 아키텍처)
+400+ 언어 지원으로 확장성도 좋음
+<2ko> 프리픽스로 타겟 언어 지정하는 깔끔한 구조
+3B 모델이면 추론 비용도 NLLB-1.3B와 크게 차이 안 남
+
+그렇다는데.. 돌려보니까 기본 번역 성능은 놓치는 게 좀있고, 진짜
+기본만 하는 수준인 거 같다. 튜닝 필요!
+
+inference 속도도 너무 느린 거 같은데?
+
+4/14
+
+madlad가 로컬인데 inference 개느려서
+그냥 이왕 느린거 qwen으로 돌리기로 함. 이것도 구현해둠.
+
+translator 환경으로 돌리자(conda)
+
+그리고 inpainting 파이프라인 물어봤다. 
+
+Masking
+OCR Box Expansion글자 주변까지 포함하는 마스크 생성
+Cleaning
+LaMa 또는 AOT-GAN글자 제거 및 배경 복원
+Rendering
+Pillow / OpenCV폰트 크기 최적화 및 텍스트 삽입
+Blending
+Alpha Blending / Poisson Editing:
+텍스트와 배경의 경계를 자연스럽게 융합
+
+총 4가지가 있다고 함.
+
+4/25
+저 4개 어떻게 할지 구상 
+일단 1. 마스킹은 
+paddleocr_demo_v2_using_layout_parsing.py가 처리.
+
+얘가 말풍선인지, 배경 이미지 글씨인지를 판단함. 
+
+말풍선 안 텍스트:
+
+{
+  "id": 0,
+  "merged_text": "テスト こんにちは",
+  "bbox": [30, 25, 90, 65],
+  "bubble_bbox": [10, 10, 110, 80],
+  "mask_bbox": [10, 10, 110, 80]
+}
+
+말풍선 밖 텍스트 (배경 효과음 등):
+
+{
+  "id": 1,
+  "merged_text": "ドカーン",
+  "bbox": [200, 150, 260, 180],
+  "bubble_bbox": null,
+  "mask_bbox": [190, 140, 270, 190]
+}
+
+이렇게 따로 저장된다. 
+
++ 나중에 말풍선 외 이미지는 무시하는 걸로 해도 될듯?
+말풍선 외에는 사실 크게 의미 없는 경우 많으니, 가독성 위해서 이렇게 해도 될듯
+
+이제 이걸 받아서, inpainting_cleaning이 
+LaMa를 활용해서 지움. 지운 결과를 output/inpainting/cleaned에 저장됨.
+
+3번째는 렌더링... 근데 번역 부분이 아직 안됐으니까 일단 보류.
+
+번역 쪽 madlad만 유지함 + mps/cuda/cpu 추가해서 빨라지게함.
+특히 맥에서 mps 추가하니까 엄청 빨라졌음!
+
+LoRA 붙여서 fine-training으로 가려고 함.
+
+1. 데이터 로드 (만화체 ja→ko JSON)
+2. MADLAD base 모델 로드
+3. LoRA config 설정 + 모델에 붙이기
+4. Trainer 설정 (학습률, 배치 사이즈, 에폭 등)
+5. 학습 실행
+6. LoRA 어댑터 저장 → models/translation/lora/manga/
+
+라고 하는데. 일단 LoRA config는 나중에 만지고, 학습 데이터셋이나 만들어 보자.
+
+데이터셋 찾는 중.
+1. opensubtitle은 문장은 많은데, 장르가 너무 다양함.
+2. open mantra는 만환데 상업적 이용이 안됨.. 
+3. joujiboi/japanese-anime-speech-v2
+제일 괜찮은 거 찾음!
+audio_transcription_list.txt에 있어서 이거 가공해서 쓰면 될 듯. 
