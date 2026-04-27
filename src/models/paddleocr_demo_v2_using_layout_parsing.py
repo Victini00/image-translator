@@ -1,4 +1,5 @@
 import os
+import json
 import argparse
 import numpy as np
 from PIL import Image, ImageDraw
@@ -121,6 +122,60 @@ def group_lines_by_bubbles(polys, texts, scores, bubbles):
     return paragraphs
 
 
+def save_paragraphs_json(img_path, paragraphs, out_dir, mask_pad=10):
+    """
+    paragraphs 정보를 JSON으로 저장한다.
+    이후 Masking / Cleaning / Rendering / Blending 단계에서 불러와 사용.
+
+    mask_bbox 결정 규칙:
+      - bubble_bbox가 있으면 말풍선 전체를 마스크 영역으로 사용
+      - 없으면 OCR bbox에 mask_pad 픽셀 패딩을 추가
+    """
+    img = Image.open(img_path)
+    img_w, img_h = img.size
+
+    data = {
+        "image_path": os.path.abspath(img_path),
+        "image_width": img_w,
+        "image_height": img_h,
+        "paragraphs": [],
+    }
+
+    for i, para in enumerate(paragraphs):
+        x_min, y_min, x_max, y_max = para["bbox"]
+
+        if para["bubble_bbox"] is not None:
+            mx1, my1, mx2, my2 = [int(v) for v in para["bubble_bbox"]]
+        else:
+            mx1 = max(0, x_min - mask_pad)
+            my1 = max(0, y_min - mask_pad)
+            mx2 = min(img_w, x_max + mask_pad)
+            my2 = min(img_h, y_max + mask_pad)
+
+        data["paragraphs"].append({
+            "id": i,
+            "merged_text": para["merged_text"],
+            "lines": [
+                {
+                    "text": t,
+                    "score": round(float(s), 4),
+                    "poly": [[int(pt[0]), int(pt[1])] for pt in poly],
+                }
+                for t, s, poly in zip(para["texts"], para["scores"], para["polys"])
+            ],
+            "bbox": [int(x_min), int(y_min), int(x_max), int(y_max)],
+            "bubble_bbox": [int(v) for v in para["bubble_bbox"]] if para["bubble_bbox"] else None,
+            "mask_bbox": [mx1, my1, mx2, my2],
+        })
+
+    img_basename = os.path.splitext(os.path.basename(img_path))[0]
+    out_path = os.path.join(out_dir, f"{img_basename}_paragraphs.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"문단 정보 저장: {out_path}")
+    return out_path
+
+
 def draw_paragraph_boxes_on_ocr_result(ocr_res_img_path, paragraphs):
     """save_to_img()가 만든 2패널 이미지의 오른쪽 패널에 문단 빨간 박스를 추가한다."""
     img = Image.open(ocr_res_img_path).convert("RGBA")
@@ -146,7 +201,7 @@ def main():
     parser = argparse.ArgumentParser(description="PaddleOCR v2 - 말풍선 기반 문단 그룹핑")
     parser.add_argument('--det', type=str, default="PP-OCRv5_mobile_det")
     parser.add_argument('--rec', type=str, default="PP-OCRv5_mobile_rec")
-    parser.add_argument('--img', type=str, default="./../../data/raw/images/shirobako.jpg")
+    parser.add_argument('--img', type=str, default="./../../data/raw/images/example_image.png")
     parser.add_argument('--out', type=str, default="./../../output/v4")
     parser.add_argument('--lang', type=str, default="japan")
     parser.add_argument('--bubble-conf', type=float, default=0.5,
@@ -217,6 +272,9 @@ def main():
             for text, score in zip(para['texts'], para['scores']):
                 print(f"  [{score:.2f}] {text}")
             print(f"  => 합침: {para['merged_text']}")
+
+        # 문단 정보 JSON 저장 (이후 파이프라인 단계용)
+        save_paragraphs_json(args.img, paragraphs, args.out)
 
         # 2패널 이미지에 빨간 박스 그리기
         img_basename = os.path.splitext(os.path.basename(args.img))[0]
