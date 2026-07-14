@@ -1,7 +1,7 @@
 import os
 import argparse
 import torch
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def get_device():
@@ -17,38 +17,44 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 LOCAL_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "translation")
 
-# MADLAD-400 타겟 언어 프리픽스
-TGT_LANG_PREFIX = "<2ko>"  # 한국어
-DEFAULT_MODEL = "google/madlad400-3b-mt"
+DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
 
 
-def translate(model, tokenizer, text, tgt_prefix=TGT_LANG_PREFIX):
-    # MADLAD-400은 입력 앞에 타겟 언어 프리픽스를 붙이는 방식
-    input_text = f"{tgt_prefix} {text}"
-    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+def translate(model, tokenizer, text, num_return_sequences=1):
+    # Completions 모드: 일본어 원문만 입력
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+    inputs.pop("token_type_ids", None)
+    input_len = inputs["input_ids"].shape[1]
 
+    print(f"  generating...", flush=True)
     outputs = model.generate(
         **inputs,
-        max_new_tokens=256,
-        num_beams=4,
-        length_penalty=1.0,
-        no_repeat_ngram_size=3,
-        num_return_sequences=4,
+        max_new_tokens=128,
+        do_sample=True,
+        temperature=0.1,
+        top_p=0.9,
+        num_return_sequences=num_return_sequences,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.eos_token_id,
     )
+    print(f"  done.", flush=True)
 
-    results = [tokenizer.decode(out, skip_special_tokens=True).strip() for out in outputs]
+    # 입력 토큰 제외하고 생성된 부분만 디코딩
+    results = [
+        tokenizer.decode(out[input_len:], skip_special_tokens=True).strip()
+        for out in outputs
+    ]
     return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MADLAD-400 번역 데모 (ja→ko)")
+    parser = argparse.ArgumentParser(description="hell0ks ja-ko-vn-7b 번역 데모 (ja→ko)")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
                         help="HuggingFace 모델 이름 또는 로컬 경로")
     parser.add_argument("--text", type=str, default=None,
                         help="번역할 일본어 문장")
     args = parser.parse_args()
 
-    # 로컬에 저장된 모델이 있으면 거기서 로드, 없으면 HuggingFace에서 다운로드 후 저장
     model_name = args.model
     local_path = os.path.join(LOCAL_MODEL_DIR, model_name.replace("/", "_"))
 
@@ -57,19 +63,18 @@ def main():
         load_path = local_path
     else:
         print(f"HuggingFace에서 다운로드: {model_name}")
-        print("(첫 실행 시 ~12GB 다운로드, 이후 로컬에서 로드)")
+        print("(첫 실행 시 ~14GB 다운로드, 이후 로컬에서 로드)")
         load_path = model_name
 
     device = get_device()
     print(f"사용 디바이스: {device}")
 
-    tokenizer = AutoTokenizer.from_pretrained(load_path)
-    model = AutoModelForSeq2SeqLM.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(load_path, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(
         load_path,
         torch_dtype=torch.float16,
     ).to(device)
 
-    # 로컬에 아직 없으면 저장
     if not os.path.exists(local_path):
         print(f"모델 로컬 저장 중: {local_path}")
         os.makedirs(local_path, exist_ok=True)
@@ -79,7 +84,6 @@ def main():
 
     print("모델 로딩 완료!\n")
 
-    # 테스트 문장들 (일반 + 만화체)
     test_sentences = [
         "お前はもう死んでいる。",
         "私の名前は田中です。よろしくお願いします。",

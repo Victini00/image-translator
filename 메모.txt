@@ -605,3 +605,107 @@ LoRA 붙여서 fine-training으로 가려고 함.
 3. joujiboi/japanese-anime-speech-v2
 제일 괜찮은 거 찾음!
 audio_transcription_list.txt에 있어서 이거 가공해서 쓰면 될 듯. 
+
+6/26
+오랜만~
+일단 일본어 문장 약 30만개만 뽑은
+audio_transcription_list_processed.txt를 만듦.
+이걸 씹덕체 번역 LLM을 시켜야 됨.
+
+6/27
+에이전트한테, 1000개씩 끊어서 달라고 시킴. 
+그걸 data/processed에 넣어서, 나중에 학습 포맷 맞춰 후처리한다음
+넣을 계획.
+
+일단 데이터셋 구축 먼저 하고..
+
+구축 후 할것)
+- translation_madlad_LORA_tuning.py 만들기
+  - argparse로 넣기
+  - lora 저장용 폴더
+  - 데이터 전처리
+
+그런데 보다 보니까.. 그냥 퀄리티 좋은 1만 개로 하는 게 좋아 보인다.
+번역 지침을 좀 더 명확하게 해야겠음. 
+
+6/28
+명확하게 해서 하는 중.. 
+
+6/29
+계속 번역 작업 진행 및 지침 추가도
+- 선정적 문장에 대한 작업 제외: 명확히 안 될 수 있어서..
+
+그리고 이미 번역한 것들에 대한 재검수 수작업으로 진행
+
+6/30
+translation_madlad_demo의 generate 항목 수정
+
+outputs = model.generate(
+        **inputs,
+        max_new_tokens=256,
+        num_beams=4,
+        length_penalty=0.8,
+        no_repeat_ngram_size=3,
+    )
+
+원래 greedy였는데, Num_beams를 추가함으로써 
+
+Greedy decoding은 매 스텝마다 확률 가장 높은 토큰 하나만 선택합니다. 
+한 번 잘못된 방향으로 가면 돌아오지 못합니다.
+Beam search는 후보 경로를 num_beams개 동시에 유지하면서 
+전체 시퀀스 확률이 가장 높은 걸 최종 선택합니다.
+
+가 된다고 함. 
+
+추가로 generate의 parameter 항목을 수정하여 번역을 좀 다듬?어 보려고 함.
+
+파라미터	기본값	현재값	역할
+max_new_tokens	None (모델 max까지)	256	생성할 최대 토큰 수
+min_new_tokens	0	-	생성할 최소 토큰 수. 너무 짧은 번역 방지
+num_beams	1 (greedy)	4	동시에 유지할 후보 경로 수. 높을수록 품질↑ 속도↓
+length_penalty	1.0	0.8	beam 선택 시 길이 보정. <1.0이면 짧은 쪽 선호, >1.0이면 긴 쪽 선호
+early_stopping	False	-	True면 모든 beam이 EOS에 도달하면 즉시 종료
+no_repeat_ngram_size	0 (비활성)	3	이 크기의 n-gram이 반복되면 강제 차단. 3이면 3단어 반복 금지
+repetition_penalty	1.0 (비활성)	-	이미 나온 토큰에 패널티. 1.0=없음, 높을수록 반복 억제
+num_return_sequences	1	-	반환할 번역 후보 수. num_beams 이하로만 가능
+
+번역 품질 조정 시 건드릴 만한 것:
+번역이 너무 짧게 잘린다 → length_penalty 올리기 (0.8 → 1.2)
+번역이 너무 장황하다 → length_penalty 낮추기
+같은 표현이 반복된다 → no_repeat_ngram_size 올리기 (3 → 4)
+번역 후보를 여러 개 보고 싶다 → num_return_sequences=4, num_beams=4
+
+7/6
+텍스트 3, 4 검수
+
+7/9
+
+텍스트 5, 6 검수
+
+7/10
+텍스트 6, 7 검수
+
+계속해서 지침 몇 개를 추가함.
+
+너무 선정적인 거 말고는 추가하도록...
+문장 부호 맞추도록..
+의성어나 의태어 등은 한국어 말대로 의역해서 넣도록...
+한자어 너무 직역하지 말고 풀어서 쓰도록..
+
+7/12
+
+8까지 검수 완료
+너무 구려서 다른 모델 ㅏㅊㅈ음.
+madlad 안돼서 nllb를 했는데 이건 더구림..
+걍 가중치 없앰. 
+
+그래서 다른 거 중 huggingface transformer로 되는거
+찾아보라고 함.
+
+1. hell0ks/ja-ko-vn-7b-v1 — 가장 관련성 높음
+비주얼 노벨/게임 대사 JA-KO 데이터로 파인튜닝된 7B LLM
+사용자분이 만들려는 것과 거의 동일한 방향
+transformers AutoModelForCausalLM으로 로드 가능 
+(단, seq2seq가 아닌 CausalLM 방식)
+
+가 있다고 하는데.. 이걸로 demo 만들어서 해봄

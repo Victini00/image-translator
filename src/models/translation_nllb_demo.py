@@ -17,18 +17,20 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 LOCAL_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "translation")
 
-# MADLAD-400 타겟 언어 프리픽스
-TGT_LANG_PREFIX = "<2ko>"  # 한국어
-DEFAULT_MODEL = "google/madlad400-3b-mt"
+# NLLB-200 언어 코드
+SRC_LANG = "jpn_Jpan"   # 일본어
+TGT_LANG = "kor_Hang"   # 한국어
+DEFAULT_MODEL = "facebook/nllb-200-3.3B"
 
 
-def translate(model, tokenizer, text, tgt_prefix=TGT_LANG_PREFIX):
-    # MADLAD-400은 입력 앞에 타겟 언어 프리픽스를 붙이는 방식
-    input_text = f"{tgt_prefix} {text}"
-    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+def translate(model, tokenizer, text, src_lang=SRC_LANG, tgt_lang=TGT_LANG):
+    tokenizer.src_lang = src_lang
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+    target_id = tokenizer.convert_tokens_to_ids(tgt_lang)
 
     outputs = model.generate(
         **inputs,
+        forced_bos_token_id=target_id,
         max_new_tokens=256,
         num_beams=4,
         length_penalty=1.0,
@@ -41,14 +43,13 @@ def translate(model, tokenizer, text, tgt_prefix=TGT_LANG_PREFIX):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MADLAD-400 번역 데모 (ja→ko)")
+    parser = argparse.ArgumentParser(description="NLLB-200 번역 데모 (ja→ko)")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
                         help="HuggingFace 모델 이름 또는 로컬 경로")
     parser.add_argument("--text", type=str, default=None,
                         help="번역할 일본어 문장")
     args = parser.parse_args()
 
-    # 로컬에 저장된 모델이 있으면 거기서 로드, 없으면 HuggingFace에서 다운로드 후 저장
     model_name = args.model
     local_path = os.path.join(LOCAL_MODEL_DIR, model_name.replace("/", "_"))
 
@@ -57,7 +58,7 @@ def main():
         load_path = local_path
     else:
         print(f"HuggingFace에서 다운로드: {model_name}")
-        print("(첫 실행 시 ~12GB 다운로드, 이후 로컬에서 로드)")
+        print("(첫 실행 시 ~13GB 다운로드, 이후 로컬에서 로드)")
         load_path = model_name
 
     device = get_device()
@@ -69,7 +70,6 @@ def main():
         torch_dtype=torch.float16,
     ).to(device)
 
-    # 로컬에 아직 없으면 저장
     if not os.path.exists(local_path):
         print(f"모델 로컬 저장 중: {local_path}")
         os.makedirs(local_path, exist_ok=True)
@@ -79,7 +79,6 @@ def main():
 
     print("모델 로딩 완료!\n")
 
-    # 테스트 문장들 (일반 + 만화체)
     test_sentences = [
         "お前はもう死んでいる。",
         "私の名前は田中です。よろしくお願いします。",
