@@ -1,6 +1,11 @@
 import argparse
+import sys
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import PeftModel
+
+# Windows 콘솔(cp949)이 일부 한자를 못 그려서 출력이 깨지는 것을 방지
+sys.stdout.reconfigure(encoding="utf-8")
 
 
 def get_device():
@@ -13,6 +18,7 @@ def get_device():
 
 
 DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
+DEFAULT_LORA = "./../../models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1"
 
 
 def translate(model, tokenizer, text, num_return_sequences=1):
@@ -51,9 +57,11 @@ def translate(model, tokenizer, text, num_return_sequences=1):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="hell0ks ja-ko-vn-7b 번역 데모 (ja→ko)")
+    parser = argparse.ArgumentParser(description="hell0ks ja-ko-vn-7b 번역 데모 (ja→ko) - LoRA 어댑터 적용 가능")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
                         help="HuggingFace 모델 이름 또는 로컬 경로")
+    parser.add_argument("--lora_path", type=str, default=DEFAULT_LORA,
+                        help="적용할 LoRA 어댑터 경로 (빈 문자열('')이면 base 모델만 사용)")
     parser.add_argument("--text", type=str, default=None,
                         help="번역할 일본어 문장")
     args = parser.parse_args()
@@ -68,10 +76,32 @@ def main():
     print(f"사용 디바이스: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(load_path, use_fast=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        load_path,
-        torch_dtype=torch.float16,
-    ).to(device)
+
+    if device.type == "cuda":
+        # 7B 모델이 12GB급 VRAM에 fp16 그대로는 안 들어가서 4bit로 로드한다
+        # (LoRA 학습 때와 동일한 양자화 설정).
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            load_path,
+            quantization_config=bnb_config,
+            device_map="auto",
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            load_path,
+            torch_dtype=torch.float16,
+        ).to(device)
+
+    if args.lora_path:
+        print(f"LoRA 어댑터 적용: {args.lora_path}")
+        model = PeftModel.from_pretrained(model, args.lora_path)
+
+    model.eval()
 
     print("모델 로딩 완료!\n")
 
