@@ -1,4 +1,6 @@
 import argparse
+import datetime
+import os
 import sys
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -19,6 +21,16 @@ def get_device():
 
 DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
 DEFAULT_LORA = "./../../models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1"
+DEFAULT_COMPARE_OUTPUT_DIR = "./../../output/text/hell0ks"
+
+# 0100의 몇개 문장들(test 데이터임) - (일본어, 정답 한국어)
+TEST_SET = [
+    ("話の途中だったでしょ。来週の月曜から、いよいよ期末テスト！", "얘기하다 말았잖아. 다음 주 월요일부터 드디어 기말고사야!"),
+    ("勉強もちゃんとしてますっ！きちんと計画立てて、ぬかりなく！！", "공부도 제대로 하고 있어요! 철저하게 계획을 세워서, 빈틈없이요!!"),
+    ("あ…ありがと、助かる！お茶碗一杯分をラップして、置いといて。あら熱取れてから冷凍庫に入れるからっ", "아... 고마워, 살았다! 밥 한 공기 분량씩 랩으로 싸서 놔둬. 한 김 식으면 냉동실에 넣을 테니까"),
+    ("その…ちょっと、気になって。今晩冷えるから", "그게... 조금 신경 쓰여서요. 오늘 밤은 추우니까"),
+    ("それなのに、うぅ、風邪引いたくらいでっ…、テスト勉強をおろそかになんてできないわよっ！", "그런데도, 으으, 감기 좀 걸렸다고... 시험공부를 소홀히 할 순 없어!"),
+]
 
 
 def translate(model, tokenizer, text, num_return_sequences=1):
@@ -56,27 +68,7 @@ def translate(model, tokenizer, text, num_return_sequences=1):
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(description="hell0ks ja-ko-vn-7b 번역 데모 (ja→ko) - LoRA 어댑터 적용 가능")
-    parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
-                        help="HuggingFace 모델 이름 또는 로컬 경로")
-    parser.add_argument("--lora_path", type=str, default=DEFAULT_LORA,
-                        help="적용할 LoRA 어댑터 경로 (빈 문자열('')이면 base 모델만 사용)")
-    parser.add_argument("--text", type=str, default=None,
-                        help="번역할 일본어 문장")
-    args = parser.parse_args()
-
-    # 프로젝트 폴더로 별도 복사하지 않고 HuggingFace 기본 캐시
-    # (~/.cache/huggingface)만 사용한다. 캐시에 없으면 자동으로 받고,
-    # 있으면 그대로 재사용하므로 디스크에 모델이 두 벌 생기지 않는다.
-    load_path = args.model
-    print(f"모델 로딩: {load_path} (HuggingFace 캐시 사용)")
-
-    device = get_device()
-    print(f"사용 디바이스: {device}")
-
-    tokenizer = AutoTokenizer.from_pretrained(load_path, use_fast=True)
-
+def load_model(model_name, lora_path, device):
     if device.type == "cuda":
         # 7B 모델이 12GB급 VRAM에 fp16 그대로는 안 들어가서 4bit로 로드한다
         # (LoRA 학습 때와 동일한 양자화 설정).
@@ -87,41 +79,104 @@ def main():
             bnb_4bit_use_double_quant=True,
         )
         model = AutoModelForCausalLM.from_pretrained(
-            load_path,
+            model_name,
             quantization_config=bnb_config,
             device_map="auto",
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            load_path,
+            model_name,
             torch_dtype=torch.float16,
         ).to(device)
 
-    if args.lora_path:
-        print(f"LoRA 어댑터 적용: {args.lora_path}")
-        model = PeftModel.from_pretrained(model, args.lora_path)
+    if lora_path:
+        print(f"LoRA 어댑터 적용: {lora_path}")
+        model = PeftModel.from_pretrained(model, lora_path)
 
     model.eval()
+    return model
 
+
+def run_test_set(model, tokenizer):
+    results = []
+    for ja, _ in TEST_SET:
+        results.append(translate(model, tokenizer, ja)[0])
+    return results
+
+
+def run_compare(model_name, lora_path, tokenizer, device, output_dir):
+    print("[1/2] base 모델(LoRA 없음) 번역 중...")
+    base_model = load_model(model_name, lora_path="", device=device)
+    base_results = run_test_set(base_model, tokenizer)
+    del base_model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    print("[2/2] LoRA 적용 모델 번역 중...")
+    lora_model = load_model(model_name, lora_path=lora_path, device=device)
+    lora_results = run_test_set(lora_model, tokenizer)
+    del lora_model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(output_dir, f"compare_{timestamp}.txt")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("hell0ks 번역 비교 (정답 / base / LoRA)\n")
+        f.write(f"생성 시각: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"LoRA 경로: {lora_path}\n")
+        f.write("=" * 60 + "\n")
+        for idx, (ja, ko_ref) in enumerate(TEST_SET, 1):
+            f.write(f"\n[{idx}]\n")
+            f.write(f"JP  : {ja}\n")
+            f.write(f"정답 : {ko_ref}\n")
+            f.write(f"Base: {base_results[idx - 1]}\n")
+            f.write(f"LoRA: {lora_results[idx - 1]}\n")
+
+    print(f"\n비교 결과 저장: {output_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="hell0ks ja-ko-vn-7b 번역 데모 (ja→ko) - LoRA 어댑터 적용 가능")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
+                        help="HuggingFace 모델 이름 또는 로컬 경로")
+    parser.add_argument("--lora_path", type=str, default=DEFAULT_LORA,
+                        help="적용할 LoRA 어댑터 경로 (빈 문자열('')이면 base 모델만 사용)")
+    parser.add_argument("--text", type=str, default=None,
+                        help="번역할 일본어 문장")
+    parser.add_argument("--compare", action="store_true",
+                        help="base 모델과 LoRA 적용 모델을 둘 다 돌려서 정답/base/LoRA 비교 결과를 txt로 저장")
+    parser.add_argument("--output_dir", type=str, default=DEFAULT_COMPARE_OUTPUT_DIR,
+                        help="--compare 결과 txt를 저장할 디렉토리")
+    args = parser.parse_args()
+
+    # 프로젝트 폴더로 별도 복사하지 않고 HuggingFace 기본 캐시
+    # (~/.cache/huggingface)만 사용한다. 캐시에 없으면 자동으로 받고,
+    # 있으면 그대로 재사용하므로 디스크에 모델이 두 벌 생기지 않는다.
+    print(f"모델 로딩: {args.model} (HuggingFace 캐시 사용)")
+
+    device = get_device()
+    print(f"사용 디바이스: {device}")
+
+    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
+
+    if args.compare:
+        run_compare(args.model, args.lora_path, tokenizer, device, args.output_dir)
+        return
+
+    model = load_model(args.model, args.lora_path, device)
     print("모델 로딩 완료!\n")
 
-    # 0100의 몇개 문장들(test 데이터임)
-    test_sentences = [
-        "話の途中だったでしょ。来週の月曜から、いよいよ期末テスト！", # 얘기하다 말았잖아. 다음 주 월요일부터 드디어 기말고사야!
-        "勉強もちゃんとしてますっ！きちんと計画立てて、ぬかりなく！！", # 공부도 제대로 하고 있어요! 철저하게 계획을 세워서, 빈틈없이요!!
-        "あ…ありがと、助かる！お茶碗一杯分をラップして、置いといて。あら熱取れてから冷凍庫に入れるからっ", # 아... 고마워, 살았다! 밥 한 공기 분량씩 랩으로 싸서 놔둬. 한 김 식으면 냉동실에 넣을 테니까
-        "その…ちょっと、気になって。今晩冷えるから", # 그게... 조금 신경 쓰여서요. 오늘 밤은 추우니까
-        "それなのに、うぅ、風邪引いたくらいでっ…、テスト勉強をおろそかになんてできないわよっ！" # 그런데도, 으으, 감기 좀 걸렸다고... 시험공부를 소홀히 할 순 없어!
-    ]
-
-    if args.text:
-        test_sentences = [args.text]
+    sentences = [args.text] if args.text else [ja for ja, _ in TEST_SET]
 
     print("=" * 50)
     print("번역 결과 (ja → ko)")
     print("=" * 50)
 
-    for sentence in test_sentences:
+    for sentence in sentences:
         results = translate(model, tokenizer, sentence)
         print(f"[JP] {sentence}")
         for i, result in enumerate(results, 1):
