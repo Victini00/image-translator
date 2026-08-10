@@ -21,7 +21,7 @@ def get_device():
 
 DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
 DEFAULT_LORA = "./../../models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1"
-DEFAULT_COMPARE_OUTPUT_DIR = "./../../output/text/hell0ks"
+DEFAULT_COMPARE_OUTPUT_DIR = "./../../output/translation/text/hell0ks"
 
 # 0100의 몇개 문장들(test 데이터임) - (일본어, 정답 한국어)
 TEST_SET = [

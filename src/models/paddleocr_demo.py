@@ -7,7 +7,7 @@ def main():
     parser.add_argument('--det', type=str, default="PP-OCRv5_mobile_det")
     parser.add_argument('--rec', type=str, default="PP-OCRv5_mobile_rec")
     parser.add_argument('--img', type=str, default="./../../data/raw/images/shirobako.jpg")
-    parser.add_argument('--out', type=str, default="./../../output/v4")
+    parser.add_argument('--out', type=str, default="./../../output/ocr/v4")
     parser.add_argument('--lang', type=str, default="japan")
     args = parser.parse_args()
 
@@ -32,7 +32,7 @@ def main():
         use_doc_unwarping=False,
         use_textline_orientation=True,
         text_detection_model_name=args.det,
-        text_recognition_model_dir="./../../models/PP-OCRv5_mobile_rec_jp_fine_tuned/complete_model",
+        text_recognition_model_dir="./../../models/ocr/PP-OCRv5_mobile_rec_jp_fine_tuned/complete_model",
         text_recognition_model_name="PP-OCRv5_mobile_rec",
         lang=args.lang,
     )
@@ -45,7 +45,7 @@ def main():
         use_doc_unwarping=False,
         use_textline_orientation=True,
         text_detection_model_name=args.det,
-        text_recognition_model_dir="./../../models/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/complete_model",
+        text_recognition_model_dir="./../../models/ocr/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/complete_model",
         text_recognition_model_name="PP-OCRv5_mobile_rec",
         lang=args.lang,
     )

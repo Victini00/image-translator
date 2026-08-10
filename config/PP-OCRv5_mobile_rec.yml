@@ -10,7 +10,7 @@ Global:
   save_epoch_step: 5
   eval_batch_step: [0, 500]
   cal_metric_during_train: true
-  pretrained_model: ./../../../models/PP-OCRv5_mobile_rec_pretrained.pdparams
+  pretrained_model: ./../../../models/ocr/PP-OCRv5_mobile_rec_pretrained.pdparams
   checkpoints:
   save_inference_dir: ./../../../models/PP-OCRv5_mobile_rec_v2
   use_visualdl: false

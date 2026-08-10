@@ -2,8 +2,16 @@ output/*
 !output/.gitkeep
 models/*
 !models/.gitkeep
-legacy/EasyOCR/
+legacy/EasyOCR(사용안함)/
 external/*
 !external/.gitkeep
 data/*
 !data/.gitkeep
+
+# 개인 메모 (공개 리포에 안 올릴 것)
+메모.txt
+
+# OS/캐시
+.DS_Store
+__pycache__/
+*.pyc
