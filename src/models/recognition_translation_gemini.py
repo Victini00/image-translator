@@ -57,8 +57,9 @@ translated_text(한국어 번역)를 추가한 뒤 같은(또는 --out으로 지
 옵션을 주면 이 translated_text를 그대로 써서 hell0ks 번역을 건너뛴다.
 
 사전 준비: 프로젝트 루트에 .env 파일을 만들고 GEMINI_API_KEY=... 한 줄을
-넣어두면 자동으로 읽어온다 (.env.example 참고, https://aistudio.google.com 에서
-카드 등록 없이 발급 가능 - 무료 티어는 분당/일당 요청 수 제한만 있음).
+넣어두면 자동으로 읽어온다 (키는 https://aistudio.google.com 에서 카드 등록 없이
+발급 가능 - 무료 티어는 분당/일당 요청 수 제한만 있음). .env는 .gitignore에
+걸려 있어서 git에 올라가지 않는다.
 
 예시:
     python recognition_translation_gemini.py --json ./../../output/pipeline_v1_gemini/test2_paragraphs.json
