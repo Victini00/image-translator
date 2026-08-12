@@ -248,7 +248,12 @@ def draw_paragraph_text(image, draw, para, text, interior_font_path, exterior_fo
 def run_rendering(args):
     device = torch.device(args.device) if args.device else get_device()
     print(f"사용 디바이스: {device}")
-    tokenizer, model = load_translation_model(args.model, args.lora_path, device)
+
+    # --use-existing-translation: recognition_translation_gemini.py가 이미
+    # translated_text를 채워놨으면 hell0ks 모델을 아예 로드하지 않고 건너뜀
+    # (Gemini 하이브리드 파이프라인용 - 번역 이중 작업/불필요한 모델 로딩 방지).
+    tokenizer, model = (None, None) if args.use_existing_translation \
+        else load_translation_model(args.model, args.lora_path, device)
 
     with open(args.json, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -258,13 +263,23 @@ def run_rendering(args):
     print(f"{len(data['paragraphs'])}개 문단 처리 시작...")
 
     for para in data["paragraphs"]:
-        # translation_correction.py가 OCR 오인식을 교정한 corrected_text를
-        # 남겨놨으면 그걸 쓰고, 없으면(구버전 JSON 등) merged_text로 하위 호환.
-        ja_text = para.get("corrected_text", para["merged_text"]).strip()
+        # translation_correction.py가 OCR 오인식을 교정한 corrected_text,
+        # recognition_translation_gemini.py가 다시 읽은 gemini_text, 둘 다
+        # 없으면(구버전 JSON 등) merged_text로 하위 호환 - 표시/로그용 원문.
+        ja_text = para.get("gemini_text", para.get("corrected_text", para["merged_text"])).strip()
         if not ja_text:
             continue
 
-        ko_text = translate_text(tokenizer, model, ja_text)
+        if args.use_existing_translation:
+            ko_text = para.get("translated_text")
+            if not ko_text:
+                # Gemini 단계가 이 문단만 실패했을 수 있음 - 이 경우에만 폴백으로
+                # hell0ks를 그때그때 로드해서 씀 (매 문단마다 로드하지 않도록 캐싱).
+                if model is None:
+                    tokenizer, model = load_translation_model(args.model, args.lora_path, device)
+                ko_text = translate_text(tokenizer, model, ja_text)
+        else:
+            ko_text = translate_text(tokenizer, model, ja_text)
         para["translated_text"] = ko_text
 
         draw_paragraph_text(
@@ -324,6 +339,9 @@ def main():
                         help="번역 LoRA 어댑터 경로 (빈 문자열이면 base 모델만 사용)")
     parser.add_argument("--device", type=str, default=None, choices=["cpu", "cuda", "mps"],
                         help="연산 디바이스 (기본값: cuda > mps > cpu 자동 감지)")
+    parser.add_argument("--use-existing-translation", action="store_true",
+                        help="JSON에 이미 채워진 translated_text(예: recognition_translation_gemini.py "
+                             "결과)를 그대로 쓰고 hell0ks 번역 모델을 로드하지 않음")
 
     args = parser.parse_args()
     run_rendering(args)

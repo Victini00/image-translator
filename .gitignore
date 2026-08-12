@@ -11,6 +11,9 @@ data/*
 # 개인 메모 (공개 리포에 안 올릴 것)
 메모.txt
 
+# API 키 등 비밀값 (.env.example만 커밋, 실제 값 담긴 .env는 제외)
+.env
+
 # OS/캐시
 .DS_Store
 __pycache__/
