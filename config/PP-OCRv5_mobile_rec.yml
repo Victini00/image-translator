@@ -1,4 +1,4 @@
-# train.py가 기준임!
+# 학습 YAML 파일 예시
 
 Global:
   model_name: PP-OCRv5_mobile_rec_jp_fine_tuned_v4
