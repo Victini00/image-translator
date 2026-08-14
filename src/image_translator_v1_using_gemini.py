@@ -14,7 +14,7 @@ image_translator_v1.py의 하이브리드 버전. detection(말풍선/문단 위
 PaddleOCR+YOLO를 쓰지만, recognition(글자 읽기)과 번역은 hell0ks 대신 Google
 Gemini API(비전)가 대신한다. Masking -> Gemini 인식+번역 -> Cleaning -> Rendering
 순서로 4단계를 subprocess로 체이닝만 한다 (각 단계 스크립트는 그대로 재사용).
-Gemini 호출은 문단 수와 무관하게 이미지당 2회(인식 1회 + 번역 1회)만 나가서
+Gemini 호출은 문단 수와 무관하게 이미지당 1회만 나가서(인식+번역을 한 번에)
 무료 티어 일일 한도를 크게 아낄 수 있다.
 
 사전 준비: 프로젝트 루트 .env 파일에 GEMINI_API_KEY=... 설정 필요
@@ -75,8 +75,6 @@ def main():
                         help="Gemini 모델 (기본값: gemini-flash-latest)")
     parser.add_argument("--crop-pad", type=int, default=None,
                         help="문단 crop 시 여유 픽셀 (기본값: 20)")
-    parser.add_argument("--request-interval", type=float, default=None,
-                        help="Gemini 인식 호출과 번역 호출 사이 대기 시간(초) (기본값: 2.0)")
 
     # ---- Cleaning 옵션 ----
     parser.add_argument("--context-pad", type=int, default=None,
@@ -139,8 +137,6 @@ def main():
         gemini_args += ["--model", args.gemini_model]
     if args.crop_pad is not None:
         gemini_args += ["--crop-pad", str(args.crop_pad)]
-    if args.request_interval is not None:
-        gemini_args += ["--request-interval", str(args.request_interval)]
     run_step("2/4 Gemini 인식+번역", GEMINI_SCRIPT, gemini_args)
 
     # ---------- 3. Cleaning ----------
