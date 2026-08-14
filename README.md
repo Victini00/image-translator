@@ -205,10 +205,18 @@ src/
   data/                               학습 데이터 생성·전처리 스크립트
   web/                                편집 웹 UI (Flask + 브라우저 편집기)
 config/                               학습 설정 (yml)
-models/                               모델 파일 (대부분 gitignore)
 external/                             외부 프로젝트 (gitignore)
 data/, output/                        데이터·결과물 (gitignore)
+
+models/                             모델 파일
+  ocr/PP-OCRv5_..._v4/complete_model/  파인튜닝 인식 모델 (저장소 포함)
+  inpainting/LaMa/                     big-lama.pt 위치 (자동 다운로드)
+  translation/hell0ks_.../lora/v1/     LoRA 어댑터 위치 (직접 준비)
 ```
+
+`models/` 하위 폴더에는 각각 **무엇을 어디에 두어야 하는지 설명한 README**가 있습니다.
+모델 파일 자체는 용량 때문에 저장소에 포함하지 않지만, 폴더 구조는 코드가 기대하는
+경로 그대로 유지되어 있습니다.
 
 ---
 
