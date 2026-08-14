@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>이미지 번역기</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <h1>이미지 번역기 <span class="sub">일본 만화 → 한국어</span></h1>
+  </header>
+
+  <main class="layout">
+    <!-- ===================== 왼쪽: 설정 패널 ===================== -->
+    <aside class="panel">
+      <section class="block">
+        <h2>1. 이미지 선택</h2>
+        <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp,image/bmp">
+        <div id="upload-status" class="status"></div>
+      </section>
+
+      <section class="block">
+        <h2>2. 모델 선택</h2>
+        {% for key, model in models.items() %}
+        <label class="radio">
+          <input type="radio" name="model" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+          <span>{{ model.label }}</span>
+        </label>
+        {% endfor %}
+      </section>
+
+      <section class="block" id="apikey-block">
+        <h2>3. Gemini API 키</h2>
+        <div id="apikey-current" class="status"></div>
+        <input type="password" id="apikey-input" placeholder="AIza... (붙여넣기)">
+        <button id="apikey-save" class="btn btn-sub">키 저장</button>
+        <p class="hint">
+          저장하면 프로젝트 루트 <code>.env</code>에 기록되어 다음에 자동으로 불러옵니다.
+          <a href="https://aistudio.google.com" target="_blank" rel="noopener">키 발급받기</a>
+        </p>
+        <p class="hint notice">
+          키가 없거나 API 한도를 초과하면 <b>자동으로 로컬 모델(PaddleOCR + hell0ks)로
+          처리</b>됩니다. 번역이 중단되지는 않지만 품질이 떨어질 수 있고, 그렇게 된 경우
+          실행 후 안내해 드립니다.
+        </p>
+      </section>
+
+      <section class="block">
+        <button id="run-btn" class="btn btn-primary" disabled>번역 실행</button>
+        <div id="run-status" class="status"></div>
+        <div id="progress-box" class="progress" hidden></div>
+        <div id="fallback-notice" class="notice-box" hidden></div>
+      </section>
+
+      <section class="block" id="log-block" hidden>
+        <h2>실행 로그</h2>
+        <pre id="log-output"></pre>
+      </section>
+    </aside>
+
+    <!-- ===================== 오른쪽: 결과 / 편집 ===================== -->
+    <section class="workspace">
+      <div class="tabs">
+        <button class="tab active" data-view="editor">편집</button>
+        <button class="tab" data-view="result">최종 결과</button>
+        <div class="spacer"></div>
+        <button id="rerender-btn" class="btn btn-sub" disabled>편집 반영해서 다시 렌더링</button>
+        <a id="download-btn" class="btn btn-primary disabled" download>결과 저장</a>
+      </div>
+
+      <!-- 편집 뷰: 글자 지운 이미지 위에 번역문 박스를 올려 직접 수정 -->
+      <div id="editor-view" class="view">
+        <div id="editor-empty" class="empty">
+          <p>이미지를 선택하고 <b>번역 실행</b>을 누르면<br>여기에서 번역문을 직접 고칠 수 있습니다.</p>
+        </div>
+        <div id="stage-wrap" hidden>
+          <!-- 편집 도구 모음 -->
+          <div class="toolbar">
+            <div class="tool-group">
+              <button class="tool-btn active" data-tool="select" title="박스 선택/이동">✥ 편집</button>
+              <button class="tool-btn" data-tool="paint" title="색으로 덧칠해서 지우기">✎ 덧칠</button>
+            </div>
+
+            <div class="tool-group paint-only" hidden>
+              <label>색
+                <input type="color" id="paint-color" value="#ffffff">
+              </label>
+              <button class="swatch" data-color="#ffffff" style="background:#fff" title="흰색"></button>
+              <button class="swatch" data-color="#000000" style="background:#000" title="검정"></button>
+              <label>굵기
+                <input type="range" id="paint-size" min="2" max="60" value="14">
+                <span id="paint-size-label">14</span>
+              </label>
+              <button id="paint-pick" class="btn btn-sub" title="이미지에서 색 추출">스포이드</button>
+              <button id="paint-undo" class="btn btn-sub">되돌리기</button>
+              <button id="paint-clear" class="btn btn-sub">전체 지우기</button>
+            </div>
+
+            <div class="tool-group select-only">
+              <label>글자 크기
+                <input type="number" id="font-size-input" min="4" max="200" placeholder="자동" disabled>
+              </label>
+              <button id="font-size-auto" class="btn btn-sub" disabled>자동으로</button>
+            </div>
+          </div>
+
+          <p class="hint editor-hint" id="editor-hint">
+            박스를 <b>더블클릭</b>하면 글자 수정(<b>Enter로 줄바꿈</b>, Esc 취소),
+            <b>드래그</b>하면 위치 이동, 오른쪽 아래 모서리를 끌면 박스 크기 조절.
+            박스를 선택한 뒤 위의 <b>글자 크기</b>를 지정할 수 있습니다.
+            미리보기는 최종 렌더링과 같은 계산으로 그려집니다.
+          </p>
+
+          <div id="stage">
+            <img id="stage-img" alt="번역 대상 이미지">
+            <canvas id="paint-canvas"></canvas>
+            <canvas id="text-canvas"></canvas>
+            <div id="brush-cursor" hidden></div>
+            <!-- 문단 박스(투명 조작용)들이 JS로 여기에 추가됨 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 결과 뷰: 실제 렌더링된 최종 이미지 -->
+      <div id="result-view" class="view" hidden>
+        <div id="result-empty" class="empty">
+          <p>아직 결과가 없습니다.</p>
+        </div>
+        <img id="result-img" alt="번역 결과" hidden>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
