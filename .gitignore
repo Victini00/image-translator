@@ -1,18 +1,36 @@
 output/*
 !output/.gitkeep
-models/*
-!models/.gitkeep
 legacy/EasyOCR(사용안함)/
 external/*
 !external/.gitkeep
 data/*
 !data/.gitkeep
 
+# ---------------------------------------------------------------- 모델 파일
+# 기본은 전부 제외하되, "추론에 실제로 필요한 것"만 골라서 올린다.
+# (학습 체크포인트/옵티마이저 상태/로그는 수백 MB라 GitHub에 부적합.
+#  받는 방법은 README의 '모델 준비' 항목 참고)
+models/*
+!models/.gitkeep
+
+# 파인튜닝한 일본어 인식 모델 v4 - 추론용 파일과 학습 설정만 포함(약 17MB)
+!models/ocr/
+models/ocr/*
+!models/ocr/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/
+models/ocr/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/*
+!models/ocr/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/complete_model/
+!models/ocr/PP-OCRv5_mobile_rec_jp_fine_tuned_v4/config.yml
+
 # 개인 메모 (공개 리포에 안 올릴 것)
 메모.txt
 
 # API 키 등 비밀값 (.env.example만 커밋, 실제 값 담긴 .env는 제외)
 .env
+
+# Claude Code 설정 - 공유용 settings.json만 올리고, 개인/장비별 설정은 제외
+# (launch.json에는 이 PC의 파이썬 절대경로가 들어 있어 다른 환경에선 못 씀)
+.claude/settings.local.json
+.claude/launch.json
 
 # OS/캐시
 .DS_Store
