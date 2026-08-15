@@ -22,6 +22,11 @@ DEFAULT_STROKE_WIDTH = 2
 DEFAULT_LINE_SPACING = 1.25
 DEFAULT_BUBBLE_INSET_RATIO = 0.15
 
+# 줄을 하나 더 쓰는 것을 허용하는 기준. 줄 수가 늘어난 대신 글자 크기가 이 비율
+# 이상 커질 때만 그 조합을 택한다(_pick_best_fit 참고).
+# 낮추면 글자가 커지는 대신 줄이 잘게 나뉘고, 높이면 그 반대가 된다.
+LINE_INCREASE_GAIN = 0.15
+
 
 def get_box_for_paragraph(para, inset_ratio=DEFAULT_BUBBLE_INSET_RATIO):
     """
@@ -130,6 +135,32 @@ def _measure(draw, font, lines, stroke_width, line_spacing):
     return line_h, total_h, max_line_w
 
 
+def _pick_best_fit(fits):
+    """박스에 들어가는 조합들 중 하나를 고른다. fits: [(줄수, 크기, font, lines, line_h)]
+
+    줄 수가 적은 쪽에서 시작해, 줄을 하나 더 쓰는 대신 글자가 LINE_INCREASE_GAIN
+    이상 커지는 경우에만 그쪽으로 갈아탄다.
+
+    줄 수만 최소화하면 세로로 긴 말풍선에서 공간을 크게 낭비한다(실측: 133x160
+    박스에서 2줄 14px가 뽑혀 세로의 22%만 사용. 같은 박스에 3줄 21px이 들어갔다).
+    반대로 크기만 최대화하면 짧은 대사가 불필요하게 여러 줄로 쪼개진다.
+    "줄을 더 쓴 만큼 실제로 글자가 커졌는가"를 조건으로 두어 양쪽을 모두 피한다.
+
+    줄바꿈이 띄어쓰기 기준이라 공백 없는 짧은 대사('영차')는 애초에 한 줄로만
+    나오므로, 이 규칙 때문에 잘게 쪼개질 일이 없다."""
+    best_by_lines = {}
+    for n_lines, size, font, lines, line_h in fits:
+        if n_lines not in best_by_lines or size > best_by_lines[n_lines][1]:
+            best_by_lines[n_lines] = (n_lines, size, font, lines, line_h)
+
+    best = None
+    for n_lines in sorted(best_by_lines):
+        candidate = best_by_lines[n_lines]
+        if best is None or candidate[1] >= best[1] * (1 + LINE_INCREASE_GAIN):
+            best = candidate
+    return best
+
+
 def fit_text(draw, text, font_path, box_w, box_h, max_size, min_size,
              stroke_width=0, line_spacing=1.25, force_size=None):
     """
@@ -141,10 +172,9 @@ def fit_text(draw, text, font_path, box_w, box_h, max_size, min_size,
     세로로 넘치는 것은 사용자의 선택이므로 막지 않는다.
 
     1단계: max_size~min_size 범위 전체를 훑어(띄어쓰기 단위 줄바꿈만 허용,
-           단어를 안 쪼갬) 박스 안에 들어가는 조합들 중, 줄 수가 가장 적은
-           것을 고르고, 줄 수가 같으면 그중 폰트가 가장 큰 것을 고른다.
-           (원문이 한 줄이었는데 번역하면서 살짝 길어졌다고 무작정 두 줄로
-           쪼개기보다, 폰트를 조금 줄여서 한 줄을 유지하는 쪽을 우선한다.)
+           단어를 안 쪼갬) 박스 안에 들어가는 조합을 모은 뒤, 줄 수가 적은 쪽부터
+           보면서 "줄을 하나 더 쓰는 대신 글자가 그만큼 커지는가"를 따져 고른다.
+           (LINE_INCREASE_GAIN 참고)
     2단계: min_size까지 줄여도 박스에 안 들어가면(단어 하나가 너무 길거나
            텍스트가 너무 많음) - 경계를 넘지 않는 게 단어를 안 쪼개는 것보다
            우선이므로, 글자 단위 줄바꿈으로 전환해서 1px까지 계속 줄여서라도
@@ -169,8 +199,7 @@ def fit_text(draw, text, font_path, box_w, box_h, max_size, min_size,
             fits.append((len(lines), size, font, lines, line_h))
 
     if fits:
-        fits.sort(key=lambda f: (f[0], -f[1]))  # 줄 수 적은 것 우선, 동률이면 큰 폰트 우선
-        _, _, font, lines, line_h = fits[0]
+        _, _, font, lines, line_h = _pick_best_fit(fits)
         return (font, lines, line_h)
 
     last = None
