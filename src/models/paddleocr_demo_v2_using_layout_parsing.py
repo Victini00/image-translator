@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import argparse
 import numpy as np
@@ -260,6 +261,41 @@ def draw_paragraph_boxes_on_ocr_result(ocr_res_img_path, paragraphs):
     print(f"문단 박스 추가 저장: {ocr_res_img_path}")
 
 
+# PaddleOCR(PaddleX)이 받아주는 확장자. 이 목록에 없으면 파일을 열어보지도 않고
+# "Not supported input file type!"을 내며 빈 결과를 돌려준다(예외를 안 던짐).
+PADDLE_SUPPORTED_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
+
+
+def ensure_supported_image(img_path, out_dir):
+    """PaddleOCR이 못 읽는 형식이면 PNG로 변환해서 그 경로를 돌려준다.
+
+    webp처럼 cv2/PIL은 잘 읽지만 PaddleX가 확장자로 먼저 걸러내는 형식이 있어서,
+    파이프라인에 넣기 전에 한 번 변환해 준다. 변환본은 작업 폴더에 남긴다
+    (이후 Cleaning/crop 단계가 JSON의 image_path로 같은 파일을 다시 열기 때문).
+    이미 지원 형식이면 원본 경로를 그대로 돌려준다."""
+    ext = os.path.splitext(img_path)[1].lower()
+    if ext in PADDLE_SUPPORTED_EXTS:
+        return img_path
+
+    basename = os.path.splitext(os.path.basename(img_path))[0]
+    converted = os.path.join(out_dir, f"{basename}_converted.png")
+    try:
+        with Image.open(img_path) as im:
+            # 투명 영역이 있으면 흰 배경에 합성한다(만화 지면 기준으로 자연스러움).
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                background = Image.new("RGB", im.size, (255, 255, 255))
+                background.paste(im.convert("RGBA"), mask=im.convert("RGBA").split()[-1])
+                background.save(converted)
+            else:
+                im.convert("RGB").save(converted)
+    except Exception as e:
+        print(f"에러: '{ext}' 형식을 PNG로 변환하지 못했습니다: {e}")
+        return None
+
+    print(f"'{ext}'는 PaddleOCR이 지원하지 않아 PNG로 변환했습니다: {converted}")
+    return converted
+
+
 def main():
     parser = argparse.ArgumentParser(description="PaddleOCR v2 - 말풍선 기반 문단 그룹핑")
     parser.add_argument('--det', type=str, default="PP-OCRv5_server_det",
@@ -305,10 +341,26 @@ def main():
         print(f"에러: '{args.img}' 찾을 수 없음")
         return
 
+    # PaddleOCR이 못 읽는 형식(webp 등)이면 PNG로 바꿔서 진행한다.
+    # 이후 단계들은 여기서 저장하는 JSON의 image_path를 따라가므로,
+    # 변환된 파일을 그대로 쓰도록 args.img를 갈아끼운다.
+    img_path = ensure_supported_image(args.img, args.out)
+    if img_path is None:
+        return
+    args.img = img_path
+
     # 3. OCR 실행 (문서 회전 보정 각도는 OCR을 돌려봐야 알 수 있어서, 말풍선
     # 좌표 변환에 쓸 각도도 이 결과를 먼저 받은 후에 계산한다)
     print(f"OCR 분석 시작: {args.img}")
     result = ocr.predict(args.img)
+
+    # PaddleOCR은 형식을 못 읽어도 예외를 던지지 않고 빈 결과를 돌려준다.
+    # 그대로 두면 다음 단계에서 "json 파일이 없다"는 엉뚱한 에러로 죽어서
+    # 원인을 알 수 없으므로, 여기서 바로 알려주고 실패로 끝낸다.
+    result = list(result)
+    if not result:
+        print(f"에러: OCR이 이미지를 처리하지 못했습니다: {args.img}")
+        sys.exit(1)
 
     for res in result:
         # 기존 시각화

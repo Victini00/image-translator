@@ -158,12 +158,17 @@ def mask_key(key):
 
 # ------------------------------------------------------- 파이프라인 실행 도우미
 
+# 업로드를 받아주는 확장자. PaddleOCR이 직접 못 읽는 형식(webp/tiff/gif)도 받는다 -
+# Masking 단계가 시작 전에 PNG로 자동 변환하기 때문.
+UPLOAD_ALLOWED_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff", ".gif")
+
+
 def safe_base_name(filename):
     """업로드 파일명에서 경로 조작/특수문자를 제거하고 확장자 없는 이름만 남긴다."""
     name = os.path.basename(filename or "")
     stem, ext = os.path.splitext(name)
     stem = re.sub(r"[^\w\-.]", "_", stem, flags=re.UNICODE).strip("._") or "image"
-    ext = ext.lower() if ext.lower() in (".png", ".jpg", ".jpeg", ".webp", ".bmp") else ".png"
+    ext = ext.lower() if ext.lower() in UPLOAD_ALLOWED_EXTS else ".png"
     return stem, ext
 
 
