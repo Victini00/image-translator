@@ -6,6 +6,18 @@ external/*
 data/*
 !data/.gitkeep
 
+# 데이터 파일은 올리지 않되, 원본 이미지를 어디에 두면 되는지 알 수 있도록
+# 폴더 구조는 남긴다 (README/실행 예시가 이 경로를 가리킴)
+!data/raw/
+data/raw/*
+!data/raw/images/
+data/raw/images/*
+!data/raw/images/.gitkeep
+
+# 발표 자료 (v1만 올리고 나머지는 제외)
+docs/Project PPT.pptx
+docs/Project PDF.pdf
+
 # ---------------------------------------------------------------- 모델 파일
 # 기본은 전부 제외하되, "추론에 실제로 필요한 것"만 골라서 올린다.
 # (학습 체크포인트/옵티마이저 상태/로그는 수백 MB라 GitHub에 부적합.
@@ -44,6 +56,9 @@ models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1/*
 
 # API 키 등 비밀값 (.env.example만 커밋, 실제 값 담긴 .env는 제외)
 .env
+
+# 에디터 개인 설정
+.vscode/
 
 # Claude Code 설정 - 전부 제외.
 # 이 PC의 절대경로와 개인 권한 허용 목록이라 다른 환경에서 쓸 수 없고,
