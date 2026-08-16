@@ -24,7 +24,7 @@
 
 ## How It Works
 
-<!-- TODO: 파이프라인 다이어그램 -->
+![파이프라인](docs/pipeline.png)
 
 파이프라인은 네 단계로 구성됩니다.
 
