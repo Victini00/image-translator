@@ -14,21 +14,19 @@ sys.stderr.reconfigure(encoding="utf-8")
 통합 스크립트. 새 로직을 짜지 않고, 이미 검증된 각 단계 스크립트
 (paddleocr_demo_v2_using_layout_parsing.py / inpainting_cleaning.py /
 inpainting_rendering.py)를 그대로 순서대로 subprocess로 호출해서 체이닝만 한다.
-(교정 단계(translation_correction.py)는 아직 신뢰할 수 있는 모델을 못 찾아서 보류 상태라
-여기 파이프라인에는 안 넣었음 - 나중에 넣게 되면 Masking과 Rendering 사이에 끼워넣으면 됨.)
 
-필수 인자는 --img(원본 이미지 경로) 하나뿐이고, 그 외 각 단계별 옵션은 안 주면 그
-단계 스크립트 자체의 기본값(지금까지 확정한 값들: server_det, threshold 0.4,
-big-lama, Gmarket Sans Medium 폰트 등)이 그대로 적용된다.
+필수 인자는 --img(원본 이미지 경로) 하나
 
 예시:
     python image_translator_v1.py --img ./../data/raw/images/test2.png
     python image_translator_v1.py --img ./../data/raw/images/test2.png --rec-score-thresh 0.5
 """
 
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SRC_DIR)
-MODELS_DIR = os.path.join(SRC_DIR, "models")
+# 경로·기본값·산출물 파일명 규칙은 src/config.py가 단일 출처다.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import config  # noqa: E402
+
+MODELS_DIR = config.CODE_MODELS_DIR
 
 MASKING_SCRIPT = os.path.join(MODELS_DIR, "paddleocr_demo_v2_using_layout_parsing.py")
 CLEANING_SCRIPT = os.path.join(MODELS_DIR, "inpainting_cleaning.py")
@@ -51,40 +49,44 @@ def main():
     )
     parser.add_argument("--img", type=str, required=True,
                         help="번역할 원본 이미지 경로 (필수)")
-    parser.add_argument("--out-dir", type=str, default=os.path.join(PROJECT_ROOT, "output", "pipeline_v1"),
+    parser.add_argument("--out-dir", type=str, default=config.PIPELINE_V1_OUTPUT_DIR,
                         help="결과물(paragraphs json, cleaned/rendered 이미지) 저장 폴더")
     parser.add_argument("--name", type=str, default=None,
                         help="결과 파일 이름에 쓸 베이스 이름 (기본값: 원본 이미지 파일명)")
 
     # ---- Masking 옵션 (안 주면 masking 스크립트 기본값 사용) ----
     parser.add_argument("--det", type=str, default=None,
-                        help="detection 모델 (기본값: PP-OCRv5_server_det)")
+                        help=f"detection 모델 (기본값: {config.DETECTION_MODEL})")
     parser.add_argument("--rec-score-thresh", type=float, default=None,
-                        help="OCR 인식 신뢰도 임계값 (기본값: 0.4)")
+                        help=f"OCR 인식 신뢰도 임계값 (기본값: {config.REC_SCORE_THRESH})")
     parser.add_argument("--bubble-conf", type=float, default=None,
-                        help="말풍선 검출 confidence 임계값 (기본값: 0.5)")
+                        help=f"말풍선 검출 confidence 임계값 (기본값: {config.BUBBLE_CONF_THRESH})")
     parser.add_argument("--mask-pad", type=int, default=None,
-                        help="mask_bbox에 추가할 여유 픽셀 (기본값: 10)")
+                        help=f"mask_bbox에 추가할 여유 픽셀 (기본값: {config.MASK_PAD})")
 
     # ---- Cleaning 옵션 ----
     parser.add_argument("--context-pad", type=int, default=None,
-                        help="말풍선 밖 텍스트 LaMa inpainting 시 context 픽셀 (기본값: 30)")
+                        help=f"말풍선 밖 텍스트 LaMa inpainting 시 context 픽셀 (기본값: {config.LAMA_CONTEXT_PAD})")
     parser.add_argument("--dilate-px", type=int, default=None,
-                        help="말풍선 밖 텍스트(LaMa) 폴리곤 팽창 픽셀 (기본값: 4)")
+                        help=f"말풍선 밖 텍스트(LaMa) 폴리곤 팽창 픽셀 (기본값: {config.LAMA_DILATE_PX})")
     parser.add_argument("--fill-dilate-px", type=int, default=None,
-                        help="말풍선 안 텍스트(단색 채우기) 폴리곤 팽창 픽셀 (기본값: 1)")
+                        help=f"말풍선 안 텍스트(단색 채우기) 폴리곤 팽창 픽셀 (기본값: {config.FILL_DILATE_PX})")
 
     # ---- Rendering 옵션 ----
     parser.add_argument("--interior-font", type=str, default=None,
                         help="말풍선 안쪽 텍스트 폰트 경로 (기본값: Gmarket Sans Medium)")
     parser.add_argument("--exterior-font", type=str, default=None,
                         help="말풍선 밖 텍스트 폰트 경로 (기본값: HY POP M)")
-    parser.add_argument("--max-font-size", type=int, default=None, help="기본값: 36")
-    parser.add_argument("--min-font-size", type=int, default=None, help="기본값: 12")
-    parser.add_argument("--stroke-width", type=int, default=None, help="기본값: 2")
-    parser.add_argument("--bubble-inset-ratio", type=float, default=None, help="기본값: 0.15")
+    parser.add_argument("--max-font-size", type=int, default=None,
+                        help=f"기본값: {config.MAX_FONT_SIZE}")
+    parser.add_argument("--min-font-size", type=int, default=None,
+                        help=f"기본값: {config.MIN_FONT_SIZE}")
+    parser.add_argument("--stroke-width", type=int, default=None,
+                        help=f"기본값: {config.STROKE_WIDTH}")
+    parser.add_argument("--bubble-inset-ratio", type=float, default=None,
+                        help=f"기본값: {config.BUBBLE_INSET_RATIO}")
     parser.add_argument("--model", type=str, default=None,
-                        help="번역용 모델 (기본값: hell0ks/ja-ko-vn-7b-v1)")
+                        help=f"번역용 모델 (기본값: {config.TRANSLATION_MODEL})")
     parser.add_argument("--lora-path", type=str, default=None,
                         help="번역 LoRA 어댑터 경로 (빈 문자열이면 LoRA 없이 base만 사용)")
 
@@ -103,12 +105,12 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     base_name = args.name or os.path.splitext(os.path.basename(img_path))[0]
 
-    json_name = f"{base_name}_paragraphs.json"
+    json_name = config.paragraphs_json(base_name)
     json_path = os.path.join(out_dir, json_name)
-    cleaned_name = f"{base_name}_cleaned.png"
+    cleaned_name = config.cleaned_image(base_name)
     cleaned_path = os.path.join(out_dir, cleaned_name)
-    rendered_path = os.path.join(out_dir, f"{base_name}_rendered.png")
-    translated_json_path = os.path.join(out_dir, f"{base_name}_paragraphs_translated.json")
+    rendered_path = os.path.join(out_dir, config.rendered_image(base_name))
+    translated_json_path = os.path.join(out_dir, config.translated_json(base_name))
 
     print(f"이미지: {img_path}")
     print(f"결과 저장 폴더: {out_dir}")

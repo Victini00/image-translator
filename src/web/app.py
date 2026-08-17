@@ -46,16 +46,21 @@ Gemini API 키는 UI에서 입력하면 프로젝트 루트 .env에 GEMINI_API_K
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(WEB_DIR)
-PROJECT_ROOT = os.path.dirname(SRC_DIR)
-MODELS_DIR = os.path.join(SRC_DIR, "models")
+
+# 경로·기본값·산출물 파일명 규칙은 src/config.py가 단일 출처다.
+sys.path.insert(0, SRC_DIR)
+import config  # noqa: E402
+
+PROJECT_ROOT = config.PROJECT_ROOT
+MODELS_DIR = config.CODE_MODELS_DIR
 
 V1_SCRIPT = os.path.join(SRC_DIR, "image_translator_v1.py")
 V1_GEMINI_SCRIPT = os.path.join(SRC_DIR, "image_translator_v1_using_gemini.py")
 RENDERING_SCRIPT = os.path.join(MODELS_DIR, "inpainting_rendering.py")
 
-ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
-WORK_DIR = os.path.join(PROJECT_ROOT, "output", "web")
-UPLOAD_DIR = os.path.join(WORK_DIR, "uploads")
+ENV_PATH = config.ENV_PATH
+WORK_DIR = config.WEB_WORK_DIR
+UPLOAD_DIR = config.WEB_UPLOAD_DIR
 
 # 폰트 경로와 박스 배치 규칙은 실제 렌더링과 반드시 같아야 하므로 render_layout에서
 # 그대로 가져온다. render_layout은 표준 라이브러리만 쓰는 모듈이라
@@ -158,9 +163,7 @@ def mask_key(key):
 
 # ------------------------------------------------------- 파이프라인 실행 도우미
 
-# 업로드를 받아주는 확장자. PaddleOCR이 직접 못 읽는 형식(webp/tiff/gif)도 받는다 -
-# Masking 단계가 시작 전에 PNG로 자동 변환하기 때문.
-UPLOAD_ALLOWED_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff", ".gif")
+UPLOAD_ALLOWED_EXTS = config.UPLOAD_ALLOWED_EXTS
 
 
 def safe_base_name(filename):
@@ -306,9 +309,9 @@ def pipeline_worker(job_id, model_key, img_path, out_dir, base):
             set_job(job_id, status="error", error="파이프라인 실행 실패", log=log[-4000:])
             return
 
-        translated_json = os.path.join(out_dir, f"{base}_paragraphs_translated.json")
-        cleaned_png = os.path.join(out_dir, f"{base}_cleaned.png")
-        rendered_png = os.path.join(out_dir, f"{base}_rendered.png")
+        translated_json = os.path.join(out_dir, config.translated_json(base))
+        cleaned_png = os.path.join(out_dir, config.cleaned_image(base))
+        rendered_png = os.path.join(out_dir, config.rendered_image(base))
         for path in (translated_json, cleaned_png, rendered_png):
             if not os.path.exists(path):
                 set_job(job_id, status="error",
@@ -324,9 +327,9 @@ def pipeline_worker(job_id, model_key, img_path, out_dir, base):
             "out_key": rel,
             "image_width": data["image_width"],
             "image_height": data["image_height"],
-            "cleaned_url": f"/api/file/{rel}/{base}_cleaned.png",
-            "rendered_url": f"/api/file/{rel}/{base}_rendered.png",
-            "rendered_name": f"{base}_rendered.png",
+            "cleaned_url": f"/api/file/{rel}/{config.cleaned_image(base)}",
+            "rendered_url": f"/api/file/{rel}/{config.rendered_image(base)}",
+            "rendered_name": config.rendered_image(base),
             "paragraphs": items,
         })
     except Exception as e:  # 예상 못 한 오류도 UI에 그대로 보여준다
@@ -534,7 +537,7 @@ def composite_paint_layer(cleaned_png, paint_data_url, out_dir, base):
         overlay = overlay.resize(background.size, Image.LANCZOS)
 
     background.alpha_composite(overlay)
-    painted_path = os.path.join(out_dir, f"{base}_cleaned_painted.png")
+    painted_path = os.path.join(out_dir, config.painted_image(base))
     background.convert("RGB").save(painted_path)
     return painted_path
 
@@ -549,8 +552,8 @@ def rerender():
     edits = body.get("paragraphs") or []
 
     out_dir = os.path.join(WORK_DIR, out_key)
-    translated_json = os.path.join(out_dir, f"{base}_paragraphs_translated.json")
-    cleaned_png = os.path.join(out_dir, f"{base}_cleaned.png")
+    translated_json = os.path.join(out_dir, config.translated_json(base))
+    cleaned_png = os.path.join(out_dir, config.cleaned_image(base))
     if not (os.path.exists(translated_json) and os.path.exists(cleaned_png)):
         return jsonify({"error": "이전 실행 결과를 찾을 수 없습니다. 먼저 실행해 주세요."}), 400
 
@@ -573,7 +576,7 @@ def rerender():
         else:
             para.pop("font_size", None)  # 자동 크기로 되돌림
 
-    edited_json = os.path.join(out_dir, f"{base}_paragraphs_edited.json")
+    edited_json = os.path.join(out_dir, config.edited_json(base))
     with open(edited_json, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -586,7 +589,7 @@ def rerender():
         except Exception as e:
             print(f"[경고] 덧칠 레이어 합성 실패, 원본으로 진행: {e}")
 
-    rendered_png = os.path.join(out_dir, f"{base}_rendered_edited.png")
+    rendered_png = os.path.join(out_dir, config.rendered_edited_image(base))
     ok, log = run_script(RENDERING_SCRIPT, [
         "--json", edited_json,
         "--cleaned-image", base_image,
@@ -600,8 +603,8 @@ def rerender():
     # 브라우저 캐시 때문에 이전 이미지가 그대로 보이는 것을 막으려고 쿼리스트링을 붙임
     return jsonify({
         "ok": True,
-        "rendered_url": f"/api/file/{out_key}/{base}_rendered_edited.png?t={int(time.time())}",
-        "rendered_name": f"{base}_rendered_edited.png",
+        "rendered_url": f"/api/file/{out_key}/{config.rendered_edited_image(base)}?t={int(time.time())}",
+        "rendered_name": config.rendered_edited_image(base),
         "log": log[-4000:],
     })
 
@@ -633,8 +636,8 @@ def download_file(subpath):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="이미지 번역 파이프라인 웹 UI")
-    parser.add_argument("--host", type=str, default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--host", type=str, default=config.WEB_HOST)
+    parser.add_argument("--port", type=int, default=config.WEB_PORT)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 

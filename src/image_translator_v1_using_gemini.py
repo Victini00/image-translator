@@ -3,19 +3,14 @@ import os
 import argparse
 import subprocess
 
-# Windows 콘솔 기본 인코딩(cp949)이 일본어/한국어 혼용 출력 시 깨지는 것 방지
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
 """
-<사용법>
 
 image_translator_v1.py의 하이브리드 버전. detection(말풍선/문단 위치)은 그대로
 PaddleOCR+YOLO를 쓰지만, recognition(글자 읽기)과 번역은 hell0ks 대신 Google
-Gemini API(비전)가 대신한다. Masking -> Gemini 인식+번역 -> Cleaning -> Rendering
-순서로 4단계를 subprocess로 체이닝만 한다 (각 단계 스크립트는 그대로 재사용).
-Gemini 호출은 문단 수와 무관하게 이미지당 1회만 나가서(인식+번역을 한 번에)
-무료 티어 일일 한도를 크게 아낄 수 있다.
+Gemini API(비전)가 대신한다.
 
 사전 준비: 프로젝트 루트 .env 파일에 GEMINI_API_KEY=... 설정 필요
 (https://aistudio.google.com 에서 카드 등록 없이 무료 발급 가능).
@@ -27,9 +22,11 @@ Gemini 호출은 문단 수와 무관하게 이미지당 1회만 나가서(인�
     python image_translator_v1_using_gemini.py --img ./../data/raw/images/test2.png
 """
 
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SRC_DIR)
-MODELS_DIR = os.path.join(SRC_DIR, "models")
+# 경로·기본값·산출물 파일명 규칙은 src/config.py가 단일 출처다.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import config  # noqa: E402
+
+MODELS_DIR = config.CODE_MODELS_DIR
 
 MASKING_SCRIPT = os.path.join(MODELS_DIR, "paddleocr_demo_v2_using_layout_parsing.py")
 GEMINI_SCRIPT = os.path.join(MODELS_DIR, "recognition_translation_gemini.py")
@@ -54,45 +51,50 @@ def main():
     parser.add_argument("--img", type=str, required=True,
                         help="번역할 원본 이미지 경로 (필수)")
     parser.add_argument("--out-dir", type=str,
-                        default=os.path.join(PROJECT_ROOT, "output", "pipeline_v1_gemini"),
+                        default=config.PIPELINE_V1_GEMINI_OUTPUT_DIR,
                         help="결과물(paragraphs json, cleaned/rendered 이미지) 저장 폴더")
     parser.add_argument("--name", type=str, default=None,
                         help="결과 파일 이름에 쓸 베이스 이름 (기본값: 원본 이미지 파일명)")
 
     # ---- Masking 옵션 (안 주면 masking 스크립트 기본값 사용) ----
     parser.add_argument("--det", type=str, default=None,
-                        help="detection 모델 (기본값: PP-OCRv5_server_det)")
+                        help=f"detection 모델 (기본값: {config.DETECTION_MODEL})")
     parser.add_argument("--rec-score-thresh", type=float, default=None,
-                        help="OCR 인식 신뢰도 임계값 (기본값: 0.4) - detection/문단 그룹핑용, "
-                             "실제 읽기는 Gemini가 다시 하지만 너무 낮추면 노이즈 문단이 생길 수 있음")
+                        help=f"OCR 인식 신뢰도 임계값 (기본값: {config.REC_SCORE_THRESH}) - "
+                             "detection/문단 그룹핑용, 실제 읽기는 Gemini가 다시 하지만 "
+                             "너무 낮추면 노이즈 문단이 생길 수 있음")
     parser.add_argument("--bubble-conf", type=float, default=None,
-                        help="말풍선 검출 confidence 임계값 (기본값: 0.5)")
+                        help=f"말풍선 검출 confidence 임계값 (기본값: {config.BUBBLE_CONF_THRESH})")
     parser.add_argument("--mask-pad", type=int, default=None,
-                        help="mask_bbox에 추가할 여유 픽셀 (기본값: 10)")
+                        help=f"mask_bbox에 추가할 여유 픽셀 (기본값: {config.MASK_PAD})")
 
     # ---- Gemini 인식+번역 옵션 ----
     parser.add_argument("--gemini-model", type=str, default=None,
-                        help="Gemini 모델 (기본값: gemini-flash-latest)")
+                        help=f"Gemini 모델 (기본값: {config.GEMINI_MODEL})")
     parser.add_argument("--crop-pad", type=int, default=None,
-                        help="문단 crop 시 여유 픽셀 (기본값: 20)")
+                        help=f"문단 crop 시 여유 픽셀 (기본값: {config.GEMINI_CROP_PAD})")
 
     # ---- Cleaning 옵션 ----
     parser.add_argument("--context-pad", type=int, default=None,
-                        help="말풍선 밖 텍스트 LaMa inpainting 시 context 픽셀 (기본값: 30)")
+                        help=f"말풍선 밖 텍스트 LaMa inpainting 시 context 픽셀 (기본값: {config.LAMA_CONTEXT_PAD})")
     parser.add_argument("--dilate-px", type=int, default=None,
-                        help="말풍선 밖 텍스트(LaMa) 폴리곤 팽창 픽셀 (기본값: 4)")
+                        help=f"말풍선 밖 텍스트(LaMa) 폴리곤 팽창 픽셀 (기본값: {config.LAMA_DILATE_PX})")
     parser.add_argument("--fill-dilate-px", type=int, default=None,
-                        help="말풍선 안 텍스트(단색 채우기) 폴리곤 팽창 픽셀 (기본값: 1)")
+                        help=f"말풍선 안 텍스트(단색 채우기) 폴리곤 팽창 픽셀 (기본값: {config.FILL_DILATE_PX})")
 
     # ---- Rendering 옵션 (번역 모델 옵션은 Gemini 단계가 실패한 문단의 폴백용) ----
     parser.add_argument("--interior-font", type=str, default=None,
                         help="말풍선 안쪽 텍스트 폰트 경로 (기본값: Gmarket Sans Medium)")
     parser.add_argument("--exterior-font", type=str, default=None,
                         help="말풍선 밖 텍스트 폰트 경로 (기본값: HY POP M)")
-    parser.add_argument("--max-font-size", type=int, default=None, help="기본값: 36")
-    parser.add_argument("--min-font-size", type=int, default=None, help="기본값: 12")
-    parser.add_argument("--stroke-width", type=int, default=None, help="기본값: 2")
-    parser.add_argument("--bubble-inset-ratio", type=float, default=None, help="기본값: 0.15")
+    parser.add_argument("--max-font-size", type=int, default=None,
+                        help=f"기본값: {config.MAX_FONT_SIZE}")
+    parser.add_argument("--min-font-size", type=int, default=None,
+                        help=f"기본값: {config.MIN_FONT_SIZE}")
+    parser.add_argument("--stroke-width", type=int, default=None,
+                        help=f"기본값: {config.STROKE_WIDTH}")
+    parser.add_argument("--bubble-inset-ratio", type=float, default=None,
+                        help=f"기본값: {config.BUBBLE_INSET_RATIO}")
 
     # ---- 공통 옵션 ----
     parser.add_argument("--device", type=str, default=None, choices=["cpu", "cuda", "mps"],
@@ -109,12 +111,12 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     base_name = args.name or os.path.splitext(os.path.basename(img_path))[0]
 
-    json_name = f"{base_name}_paragraphs.json"
+    json_name = config.paragraphs_json(base_name)
     json_path = os.path.join(out_dir, json_name)
-    cleaned_name = f"{base_name}_cleaned.png"
+    cleaned_name = config.cleaned_image(base_name)
     cleaned_path = os.path.join(out_dir, cleaned_name)
-    rendered_path = os.path.join(out_dir, f"{base_name}_rendered.png")
-    translated_json_path = os.path.join(out_dir, f"{base_name}_paragraphs_translated.json")
+    rendered_path = os.path.join(out_dir, config.rendered_image(base_name))
+    translated_json_path = os.path.join(out_dir, config.translated_json(base_name))
 
     print(f"이미지: {img_path}")
     print(f"결과 저장 폴더: {out_dir}")

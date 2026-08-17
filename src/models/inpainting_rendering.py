@@ -22,9 +22,13 @@ Masking(paragraphs.json) + Cleaning(지운 이미지)을 받아서,
 말풍선 밖(bubble_bbox 없음, 효과음 등): 테두리(stroke) 있는 텍스트
 """
 
+# 모델 이름·경로·배치 파라미터는 src/config.py가 단일 출처다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config  # noqa: E402
+
 # 번역 모델 (translation_hell0ks.py와 동일한 방식)
-DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
-DEFAULT_LORA = "./../../models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1"
+DEFAULT_MODEL = config.TRANSLATION_MODEL
+DEFAULT_LORA = config.TRANSLATION_LORA_DIR
 
 # 폰트 경로와 배치 규칙(get_box_for_paragraph)은 웹 UI 미리보기와 공유해야 하므로
 # 의존성 없는 render_layout 모듈에 두고 가져다 쓴다 (규칙이 갈라지지 않게).
@@ -149,7 +153,7 @@ def run_rendering(args):
     print(f"{len(data['paragraphs'])}개 문단 처리 시작...")
 
     for para in data["paragraphs"]:
-        # translation_correction.py가 OCR 오인식을 교정한 corrected_text,
+        # experiments/translation_correction.py(보류된 교정 단계)가 남기는 corrected_text,
         # recognition_translation_gemini.py가 다시 읽은 gemini_text, 둘 다
         # 없으면(구버전 JSON 등) merged_text로 하위 호환 - 표시/로그용 원문.
         ja_text = para.get("gemini_text", para.get("corrected_text", para["merged_text"])).strip()
@@ -195,13 +199,16 @@ def run_rendering(args):
 def main():
     parser = argparse.ArgumentParser(description="번역 붙이기 + 렌더링 - 번역문을 Cleaning 결과 이미지에 그려 넣기")
     parser.add_argument("--json", type=str,
-                        default="./../../output/ocr/masking_test/shirobako_paragraphs.json",
+                        default=os.path.join(config.OCR_OUTPUT_DIR,
+                                             config.paragraphs_json(config.SAMPLE_IMAGE_NAME)),
                         help="paragraphs JSON 경로 (masking 출력)")
     parser.add_argument("--cleaned-image", type=str,
-                        default="./../../output/inpainting/cleaned/shirobako_cleaned_D_final.png",
+                        default=os.path.join(config.CLEANED_OUTPUT_DIR,
+                                             config.cleaned_image(config.SAMPLE_IMAGE_NAME)),
                         help="Cleaning 결과 이미지 경로")
     parser.add_argument("--out", type=str,
-                        default="./../../output/translation/rendering/shirobako_rendered.png",
+                        default=os.path.join(config.RENDERED_OUTPUT_DIR,
+                                             config.rendered_image(config.SAMPLE_IMAGE_NAME)),
                         help="렌더링 결과 저장 경로")
     parser.add_argument("--save-json", type=str, default=None,
                         help="번역문(translated_text) 포함해서 저장할 JSON 경로 (지정 안 하면 저장 안 함)")
@@ -210,14 +217,16 @@ def main():
                         help="말풍선 안쪽 텍스트용 폰트 경로")
     parser.add_argument("--exterior-font", type=str, default=DEFAULT_EXTERIOR_FONT,
                         help="말풍선 밖(효과음) 텍스트용 폰트 경로")
-    parser.add_argument("--max-font-size", type=int, default=36,
-                        help="폰트 크기 자동 조절 시작값 (기본값: 36)")
-    parser.add_argument("--min-font-size", type=int, default=12,
-                        help="폰트 크기 자동 조절 최솟값, 이 이하로는 안 줄이고 넘치게 둠 (기본값: 12)")
-    parser.add_argument("--stroke-width", type=int, default=2,
-                        help="말풍선 밖 텍스트 테두리 두께 (기본값: 2)")
-    parser.add_argument("--bubble-inset-ratio", type=float, default=0.15,
-                        help="말풍선 bubble_bbox를 안쪽으로 줄이는 비율 (기본값: 0.15)")
+    parser.add_argument("--max-font-size", type=int, default=config.MAX_FONT_SIZE,
+                        help=f"폰트 크기 자동 조절 시작값 (기본값: {config.MAX_FONT_SIZE})")
+    parser.add_argument("--min-font-size", type=int, default=config.MIN_FONT_SIZE,
+                        help=f"폰트 크기 자동 조절 최솟값, 이 이하로는 안 줄이고 넘치게 둠 "
+                             f"(기본값: {config.MIN_FONT_SIZE})")
+    parser.add_argument("--stroke-width", type=int, default=config.STROKE_WIDTH,
+                        help=f"말풍선 밖 텍스트 테두리 두께 (기본값: {config.STROKE_WIDTH})")
+    parser.add_argument("--bubble-inset-ratio", type=float, default=config.BUBBLE_INSET_RATIO,
+                        help=f"말풍선 bubble_bbox를 안쪽으로 줄이는 비율 "
+                             f"(기본값: {config.BUBBLE_INSET_RATIO})")
 
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
                         help="번역용 HuggingFace 모델 이름 또는 경로")

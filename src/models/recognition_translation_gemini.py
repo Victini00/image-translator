@@ -15,58 +15,21 @@ from dotenv import load_dotenv
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-# 프로젝트 루트(이 파일 기준 ./../../)의 .env에서 GEMINI_API_KEY를 읽어와
-# 환경변수로 등록한다. find_dotenv()가 현재 작업 디렉터리부터 상위로 올라가며
-# .env를 찾으므로, src/models에서 직접 실행하든 subprocess로 실행되든 동작함.
-load_dotenv()
+# 모델 이름·크롭 여유 픽셀·.env 위치는 src/config.py가 단일 출처다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config  # noqa: E402
+
+# 프로젝트 루트의 .env에서 GEMINI_API_KEY를 읽어와 환경변수로 등록한다.
+# 경로를 명시하므로 어느 작업 디렉터리에서 실행하든(직접 실행/subprocess) 동작함.
+load_dotenv(config.ENV_PATH)
 
 """
-<사용법>
-
-Masking(paragraphs.json) 결과를 받아서, 이미지 전체의 문단들을 Google Gemini
-API(비전)에 보내 "한 번에 다 읽고, 한 번에 다 번역"시킨다.
-(Claude API 버전에서 계정 크레딧 문제로 Gemini 무료 티어로 전환했는데, 문단마다
-따로 호출하니 API 요청 수가 너무 많이 나가서 - 문단 20개짜리 이미지 한 장에
-20~40회 호출 - 무료 티어 일일 한도(RPD)를 몇 장 테스트하자마자 넘겨버림.
-그래서 이미지 1장 = 요청 2회(인식 1회 + 번역 1회)로 줄임.)
-
-기존 파이프라인은 PaddleOCR(detection+recognition)이 읽은 텍스트를
-hell0ks+LoRA가 번역했는데, 이 스크립트는 detection(문단 위치, bbox/poly)은
-그대로 PaddleOCR+YOLO 결과를 쓰되, recognition(글자 읽기)과 번역은 Gemini가
-대신한다 - 지금까지 recognition에서 반복됐던 문제(세로 조판 특수문자
-회전(ー/〜), 후리가나 혼입, 특이한 폰트체)를 완화하기 위한 하이브리드 방식.
-
-API 호출은 이미지 1장당 딱 1회다. 문단별 crop 이미지를 전부 한 번의 contents에
-담고(각 이미지 앞에 "문단 id=N" 라벨을 붙여 순서/식별을 보장), 인식과 번역을
-한 번에 시켜서 {id, 원문, 번역문}을 받는다. 문단마다 따로 부르거나 인식/번역을
-나눠 부르면 무료 티어 일일 한도(RPD)가 금방 소진되기 때문이다.
-
-주의: detection(bbox)의 정밀도는 PaddleOCR+YOLO 그대로라 정확하지만,
-Gemini가 "읽은" 텍스트가 실제 문단 범위를 벗어나거나 여러 줄을 하나로
-합칠 수 있음 - merged_text를 그대로 덮어쓰지 않고 별도 필드(gemini_text)에
-저장해서 원본 OCR 결과와 비교 가능하게 해둠.
-
-인식/번역 각각 독립적으로 실패할 수 있고(예: 인식은 성공, 번역만 실패), 그
-경우에도 성공한 부분은 살아남는다 - 번역만 실패하면 gemini_text(더 정확한
-원문)는 남아서, inpainting_rendering.py의 hell0ks 폴백 번역이 그 원문을 쓰게
-됨. id 매칭이 안 된 문단(모델이 응답에서 빠뜨린 경우)만 개별적으로 폴백된다.
-
-paragraphs.json을 읽어서 각 문단에 gemini_text(Gemini가 읽은 원문),
-translated_text(한국어 번역)를 추가한 뒤 같은(또는 --out으로 지정한) 경로에
-다시 저장한다. inpainting_rendering.py에서 --use-existing-translation
-옵션을 주면 이 translated_text를 그대로 써서 hell0ks 번역을 건너뛴다.
-
 사전 준비: 프로젝트 루트에 .env 파일을 만들고 GEMINI_API_KEY=... 한 줄을
-넣어두면 자동으로 읽어온다 (키는 https://aistudio.google.com 에서 카드 등록 없이
-발급 가능 - 무료 티어는 분당/일당 요청 수 제한만 있음). .env는 .gitignore에
-걸려 있어서 git에 올라가지 않는다.
-
-예시:
-    python recognition_translation_gemini.py --json ./../../output/pipeline_v1_gemini/test2_paragraphs.json
+넣어두면 자동으로 읽어옴.
 """
 
-DEFAULT_MODEL = "gemini-flash-latest"
-DEFAULT_CROP_PAD = 20
+DEFAULT_MODEL = config.GEMINI_MODEL
+DEFAULT_CROP_PAD = config.GEMINI_CROP_PAD
 
 SYSTEM_PROMPT = """당신은 일본 만화(manga) 페이지에서 잘라낸(crop) 여러 개의
 이미지 조각을 보고, 각 조각의 일본어 텍스트를 정확히 읽어서 한국어로 번역하는 작업을 합니다.
@@ -125,12 +88,9 @@ def _parse_retry_delay(message, default=15.0):
 
 
 def _generate_with_retry(client, model, contents, config, max_retries=3):
-    """일시적인 실패는 잠깐 쉬었다가 다시 시도한다.
-
-    - 429(rate limit): 에러 메시지가 알려주는 권장 대기 시간만큼 기다린다.
-    - 503/500(서버 과부하·일시 오류): 지수적으로 늘려가며 기다린다. 무료 티어에서
-      "high demand"로 503이 꽤 자주 나는데, 재시도하면 대개 바로 성공한다.
-    그 외 에러거나 재시도를 다 쓰면 예외를 그대로 올린다(호출부에서 폴백 처리)."""
+    """
+    일시적인 실패는 잠깐 쉬었다가 다시 시도
+    """
     for attempt in range(max_retries + 1):
         try:
             return client.models.generate_content(model=model, contents=contents, config=config)
@@ -151,13 +111,9 @@ def _generate_with_retry(client, model, contents, config, max_retries=3):
 
 
 def recognize_and_translate_batch(client, model, id_crop_pairs, fallback_texts):
-    """(id, crop 이미지) 목록 전체를 단 한 번의 요청으로 읽고 번역까지 끝낸다.
-
-    인식과 번역을 따로 호출하면 이미지 1장당 API 요청이 2회 나가는데, 무료 티어는
-    일일 요청 수(RPD) 제한이 빡빡해서 금방 소진된다. 한 번에 처리하면 이미지 1장 =
-    요청 1회로 줄어든다.
-
-    성공한 id만 담긴 {id: (원문, 번역문)} dict를 반환. 전체 실패 시 빈 dict."""
+    """
+    성공한 id만 담긴 {id: (원문, 번역문)} dict를 반환. 전체 실패 시 빈 dict.
+    """
     contents = []
     for pid, crop in id_crop_pairs:
         hint = fallback_texts.get(pid, "")
@@ -249,7 +205,8 @@ def main():
         description="Gemini API로 문단 전체를 한 번의 호출로 읽고 번역 (recognition+translation 대체)"
     )
     parser.add_argument("--json", type=str,
-                        default="./../../output/ocr/masking_test/shirobako_paragraphs.json",
+                        default=os.path.join(config.OCR_OUTPUT_DIR,
+                                             config.paragraphs_json(config.SAMPLE_IMAGE_NAME)),
                         help="paragraphs JSON 경로 (masking 출력)")
     parser.add_argument("--img", type=str, default=None,
                         help="원본 이미지 경로 (기본값: JSON 안의 image_path 사용)")

@@ -19,9 +19,13 @@ def get_device():
         return torch.device("cpu")
 
 
-DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
-DEFAULT_LORA = "./../../models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1"
-DEFAULT_COMPARE_OUTPUT_DIR = "./../../output/translation/text/hell0ks"
+# 모델 이름·경로는 src/config.py가 단일 출처다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config  # noqa: E402
+
+DEFAULT_MODEL = config.TRANSLATION_MODEL
+DEFAULT_LORA = config.TRANSLATION_LORA_DIR
+DEFAULT_COMPARE_OUTPUT_DIR = config.TRANSLATION_TEXT_OUTPUT_DIR
 
 # 0100의 몇개 문장들(test 데이터임) - (일본어, 정답 한국어)
 TEST_SET = [
@@ -36,7 +40,7 @@ TEST_SET = [
 def translate(model, tokenizer, text, num_return_sequences=1):
     # 모델이 요구하는 ChatML 채팅 템플릿(<|im_start|>user ... <|im_end|>)을 적용한다.
     # 태그 없이 원문만 넣으면 "번역하라"는 지시를 인식하지 못하고 그냥 다음 문장을
-    # 이어 쓰는 completion처럼 동작해버린다.
+    # 이어 쓰는 completion처럼 동작
     messages = [{"role": "user", "content": text}]
     inputs = tokenizer.apply_chat_template(
         messages,
@@ -70,8 +74,7 @@ def translate(model, tokenizer, text, num_return_sequences=1):
 
 def load_model(model_name, lora_path, device):
     if device.type == "cuda":
-        # 7B 모델이 12GB급 VRAM에 fp16 그대로는 안 들어가서 4bit로 로드한다
-        # (LoRA 학습 때와 동일한 양자화 설정).
+        # 7B 모델이 12GB급 VRAM에 fp16 그대로는 안 들어가서 4bit로 로드
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",

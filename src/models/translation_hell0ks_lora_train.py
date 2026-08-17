@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import sys
 
 import torch
 from torch.utils.data import Dataset
@@ -14,7 +15,11 @@ from transformers import (
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 
-DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
+# 모델 이름·경로는 src/config.py가 단일 출처
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config  # noqa: E402
+
+DEFAULT_MODEL = config.TRANSLATION_MODEL
 
 # hell0ks 계열(Llama 아키텍처) 표준 LoRA target modules
 LORA_TARGET_MODULES = [
@@ -26,7 +31,7 @@ LORA_TARGET_MODULES = [
 class JaKoPairDataset(Dataset):
     """
     jsonl({"ja": ..., "ko": ...}) 쌍을 hell0ks의 ChatML 템플릿으로 인코딩한다.
-    user(일본어 원문) 구간은 loss에서 마스킹하고, assistant(한국어 번역) 구간만 학습한다.
+    user(일본어 원문) 구간은 loss에서 마스킹하고, assistant(한국어 번역) 구간만 학습
     """
 
     def __init__(self, jsonl_path, tokenizer, max_length):
@@ -87,10 +92,8 @@ def collate_fn(batch, pad_token_id):
 def main():
     parser = argparse.ArgumentParser(description="hell0ks ja-ko-vn-7b 말투 교정용 QLoRA 파인튜닝")
     parser.add_argument("--base_model", type=str, default=DEFAULT_MODEL)
-    parser.add_argument("--data", type=str,
-                        default="./../../data/raw/texts/joujiboi/japanese-anime-speech-v2/translated/audio_transcription_list_processed_lora_train_set_v1.jsonl")
-    parser.add_argument("--output_dir", type=str,
-                        default="./../../models/translation/hell0ks_ja-ko-vn-7b-v1/lora/v1")
+    parser.add_argument("--data", type=str, default=config.TRANSLATION_LORA_TRAIN_DATA)
+    parser.add_argument("--output_dir", type=str, default=config.TRANSLATION_LORA_DIR)
     parser.add_argument("--max_length", type=int, default=128)
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument("--lr", type=float, default=2e-4)
