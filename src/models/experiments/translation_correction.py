@@ -6,29 +6,20 @@ import argparse
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-# Windows 콘솔 기본 인코딩(cp949)이 일본어/특수문자 출력 시 깨지는 것 방지
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
 """
-<사용법>
+[보류된 실험 - 파이프라인에 들어가지 않음]
 
-Masking(OCR) 결과의 merged_text는 recognition 오류(글자 오인식)를 포함할 수 있다
-(예: もー→もI, でしょ→でしよ). 번역(hell0ks+LoRA)은 그대로 두고, 그 전에 별도의
-범용 instruction-following 모델(Qwen2.5-7B-Instruct)에게 문맥상 원래 표기를
-추론해서 고치게 시킨다.
-
-(hell0ks 베이스 모델로도 먼저 시도해봤는데, "교정해줘" 같은 번역 외 지시를 전혀
-이해 못 하고 무너졌음 - 지시문을 그대로 되뱉거나, 교정 대신 번역을 해버리거나,
-반복 루프에 빠짐. 파라미터/프롬프트를 여러 번 고쳐도 마찬가지라서, hell0ks+LoRA는
-번역 전용으로 그대로 두고 교정은 별도 모델로 분리함.)
-
-결과는 원본 JSON에 paragraph별 "corrected_text" 필드를 추가해서 저장하고,
-inpainting_rendering.py는 이 필드가 있으면 그걸, 없으면 merged_text를 그대로
-번역 입력으로 쓴다 (하위 호환).
+번역 전에 OCR 오인식을 고치는 "교정 단계"를 만들어 보려던 시도
 """
 
-DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+# 모델 이름·경로는 src/config.py가 단일 출처다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import config  # noqa: E402
+
+DEFAULT_MODEL = config.CORRECTION_MODEL
 
 CORRECTION_INSTRUCTION = (
     "너는 일본어 OCR 오탈자만 고치는 교정기야. 절대 지켜야 할 규칙:\n"
@@ -42,10 +33,7 @@ CORRECTION_INSTRUCTION = (
     "입력: {text}"
 )
 
-# Qwen이 확신 없이 문장을 새로 지어내거나(과도한 재작성), 중국어 간체자/원문에 없던
-# 로마자를 섞어 쓰는 경우가 관찰됨 - 유사도로는 좋은 교정과 나쁜 교정을 못 가려서
-# (둘 다 원문과 크게 달라짐), 대신 "명백히 잘못된 신호"만 감지해서 그런 경우엔
-# 교정을 버리고 원문을 그대로 쓴다.
+
 SIMPLIFIED_CHAR_DENYLIST = set("员绪确认贵头国岁儿")
 
 
@@ -71,7 +59,9 @@ def get_device():
 
 
 def load_correction_model(model_name, device):
-    """교정용 범용 모델을 로드한다 (hell0ks+LoRA 번역 모델과는 완전히 별도)."""
+    """
+    교정용 범용 모델을 로드한다 (hell0ks+LoRA 번역 모델과는 완전히 별도).
+    """
     print(f"교정 모델 로딩: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
 
@@ -96,7 +86,8 @@ def load_correction_model(model_name, device):
 
 
 def correct_text(tokenizer, model, text):
-    """OCR 인식 원문(일본어) 한 문단을 교정한다.
+    """
+    OCR 인식 원문(일본어) 한 문단을 교정한다.
 
     반환값: (최종 텍스트, 모델이 제안한 원본 결과, 거부 여부)
     - 모델 제안이 의심스러우면(중국어 간체/새 로마자 등) 원문을 그대로 최종 텍스트로 쓰되,
@@ -168,10 +159,12 @@ def run_correction(json_path, save_json, model_name, device_str):
 def main():
     parser = argparse.ArgumentParser(description="OCR 인식 결과 교정 - 번역 전에 별도 범용 모델로 글자 오인식 교정")
     parser.add_argument("--json", type=str,
-                        default="./../../output/ocr/masking_test/shirobako_paragraphs.json",
+                        default=os.path.join(config.OCR_OUTPUT_DIR,
+                                             config.paragraphs_json(config.SAMPLE_IMAGE_NAME)),
                         help="masking 출력 paragraphs JSON 경로")
     parser.add_argument("--save-json", type=str,
-                        default="./../../output/ocr/masking_test/shirobako_paragraphs_corrected.json",
+                        default=os.path.join(config.OCR_OUTPUT_DIR,
+                                             config.corrected_json(config.SAMPLE_IMAGE_NAME)),
                         help="corrected_text 필드를 추가해서 저장할 경로")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
                         help="교정용 HuggingFace 모델 이름 또는 경로 (hell0ks+LoRA와 무관한 별도 모델)")
