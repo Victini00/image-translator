@@ -24,8 +24,12 @@ CLEANED_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "inpainting", "cleaned")
 RENDERED_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "translation", "rendering")
 TRANSLATION_TEXT_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "translation", "text", "hell0ks")
 
-# 단계별 스크립트를 단독 실행할 때 쓰는 샘플 이미지 이름. 실제 작업은 --img /
-SAMPLE_IMAGE_NAME = "Fillme"
+# 단계별 스크립트(src/models/*.py)를 옵션 없이 단독 실행할 때 쓰는 기본 이미지.
+# 자기 이미지 파일 이름으로 바꿔서 쓴다. 안 바꾸면 "Fillme..." 파일이 없다는
+# 에러가 난다. 통합 파이프라인이나 웹 UI로 돌릴 때는 실제 이미지 이름이 --img로
+# 넘어오므로 이 값은 쓰이지 않는다.
+SAMPLE_IMAGE_FILE = "Fillme.png"                            # --img 기본값 (확장자 포함)
+SAMPLE_IMAGE_NAME = os.path.splitext(SAMPLE_IMAGE_FILE)[0]  # 산출물 파일명 조립용
 
 def native_path(path):
     """

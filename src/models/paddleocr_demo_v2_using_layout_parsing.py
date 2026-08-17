@@ -286,7 +286,7 @@ def main():
                              "mobile보다 못 잡는 경우도 있었음)")
     parser.add_argument('--rec', type=str, default=config.RECOGNITION_MODEL_NAME)
     parser.add_argument('--img', type=str,
-                        default=os.path.join(config.RAW_IMAGES_DIR, f"{config.SAMPLE_IMAGE_NAME}.jpg"))
+                        default=os.path.join(config.RAW_IMAGES_DIR, config.SAMPLE_IMAGE_FILE))
     parser.add_argument('--out', type=str,
                         default=config.OCR_OUTPUT_DIR)
     parser.add_argument('--lang', type=str, default=config.OCR_LANG)
