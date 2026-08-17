@@ -38,7 +38,7 @@ def ocr_rec_answer_label_generator(input_file, output_dir, train_ratio, dict_nam
         print(f"dict.txt 업데이트 완료: {len(new_chars)}개의 새 문자 추가")
 
     # 4. 데이터 분할 (Shuffle 없이 순차적으로 분할)
-    # 원본 파일의 앞부분은 Train, 뒷부분은 Val로 할당됩니다.
+    # 원본 파일의 앞부분은 Train, 뒷부분은 Val로 할당
     split_idx = int(len(sentences) * train_ratio)
     train_set = sentences[:split_idx]
     val_set = sentences[split_idx:]
@@ -107,8 +107,7 @@ def run_trdg_auto(sentences, mode, output_dir, trdg_path, v_ratio=0.8):
         subprocess.run(cmd, check=True)
 
         # 3. 파일 이름 변경 및 최종 폴더로 이동 (가장 중요)
-        # TRDG가 생성한 파일들을 하나씩 읽어서 이름을 변경합니다.
-        # -na 3/4를 수정하셨으므로, 수정된 이름 규칙에 따라 파일이 생성되었을 것입니다.
+        # TRDG가 생성한 파일들을 하나씩 읽어서 이름을 변경
         generated_files = sorted(os.listdir(temp_task_dir))
         
         for i, filename in enumerate(generated_files):

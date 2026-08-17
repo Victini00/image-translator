@@ -5,13 +5,9 @@ from PIL import Image, ImageDraw, ImageFont
 """
 <사용법>
 
-렌더링(inpainting_rendering.py)에 쓸 폰트를 고르기 전에, 후보 폰트들이 실제로
-어떻게 나오는지 한 장의 미리보기 이미지로 모아서 확인한다.
+렌더링에 쓸 폰트를 고르기 전에, 후보 폰트들이 실제로
+어떻게 나오는지 한 장의 미리보기 이미지로 모아서 확인
 
-- INTERIOR_CANDIDATES: 말풍선 안쪽용 후보 (일반 렌더링)
-- EXTERIOR_CANDIDATES: 말풍선 밖(효과음 등)용 후보 (굵은 폰트 + 테두리 렌더링,
-  ImageDraw.text의 stroke_width/stroke_fill로 테두리를 입힌다 - 폰트 파일
-  자체가 아니라 렌더링 기법으로 테두리를 만드는 것)
 """
 
 INTERIOR_SAMPLE = "안녕? 오늘 날씨 진짜 좋다!"
@@ -22,7 +18,6 @@ INTERIOR_CANDIDATES = [
     ("Hancom Gothic Bold", r"C:\Windows\Fonts\Hancom Gothic Bold.ttf"),
     ("HANBatang", r"C:\Windows\Fonts\HANBatang.ttf"),
     ("HANBatang Bold", r"C:\Windows\Fonts\HANBatangB.ttf"),
-    # BIZ UDGothic은 설치는 되어 있으나 한글 글리프가 없어 제외 (일본어 전용 폰트)
     ("MaruBuri", r"C:\Users\a\AppData\Local\Microsoft\Windows\Fonts\MaruBuri-Regular.otf"),
     ("Gmarket Sans Medium", r"C:\Users\a\AppData\Local\Microsoft\Windows\Fonts\GmarketSansMedium.otf"),
 ]

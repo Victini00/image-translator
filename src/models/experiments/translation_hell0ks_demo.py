@@ -17,8 +17,9 @@ DEFAULT_MODEL = "hell0ks/ja-ko-vn-7b-v1"
 
 def translate(model, tokenizer, text, num_return_sequences=1):
     # 모델이 요구하는 ChatML 채팅 템플릿(<|im_start|>user ... <|im_end|>)을 적용한다.
+
     # 태그 없이 원문만 넣으면 "번역하라"는 지시를 인식하지 못하고 그냥 다음 문장을
-    # 이어 쓰는 completion처럼 동작해버린다.
+    # 이어 쓰는 completion처럼 동작해버림
     messages = [{"role": "user", "content": text}]
     inputs = tokenizer.apply_chat_template(
         messages,
@@ -59,8 +60,6 @@ def main():
     args = parser.parse_args()
 
     # 프로젝트 폴더로 별도 복사하지 않고 HuggingFace 기본 캐시
-    # (~/.cache/huggingface)만 사용한다. 캐시에 없으면 자동으로 받고,
-    # 있으면 그대로 재사용하므로 디스크에 모델이 두 벌 생기지 않는다.
     load_path = args.model
     print(f"모델 로딩: {load_path} (HuggingFace 캐시 사용)")
 
@@ -75,7 +74,6 @@ def main():
 
     print("모델 로딩 완료!\n")
 
-    # 0100의 몇개 문장들(test 데이터임)
     test_sentences = [
         "話の途中だったでしょ。来週の月曜から、いよいよ期末テスト！", # 얘기하다 말았잖아. 다음 주 월요일부터 드디어 기말고사야!
         "勉強もちゃんとしてますっ！きちんと計画立てて、ぬかりなく！！", # 공부도 제대로 하고 있어요! 철저하게 계획을 세워서, 빈틈없이요!!

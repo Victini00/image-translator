@@ -9,7 +9,7 @@ def build_jsonl(input_dir, pattern, output_dir, output_name):
     <사용법>
 
     [일본어]\\n[한국어]\\n(빈 줄) 형식으로 손번역된 *.txt 파일들을 모아
-    {"ja": ..., "ko": ...} 형태의 jsonl 한 개로 통합한다. (hell0ks LoRA 학습용)
+    {"ja": ..., "ko": ...} 형태의 jsonl 한 개로 통합 (hell0ks LoRA 학습용)
     """
 
     files = sorted(glob.glob(os.path.join(input_dir, pattern)))
