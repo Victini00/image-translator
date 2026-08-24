@@ -110,13 +110,13 @@ def _generate_with_retry(client, model, contents, config, max_retries=3):
             time.sleep(delay)
 
 
-def recognize_and_translate_batch(client, model, id_crop_pairs, fallback_texts):
+def recognize_and_translate_batch(client, model, id_crop_pairs, fallback_texts, use_ocr_hint=True):
     """
     성공한 id만 담긴 {id: (원문, 번역문)} dict를 반환. 전체 실패 시 빈 dict.
     """
     contents = []
     for pid, crop in id_crop_pairs:
-        hint = fallback_texts.get(pid, "")
+        hint = fallback_texts.get(pid, "") if use_ocr_hint else ""
         label = f"문단 id={pid}"
         if hint:
             label += f" (참고용 기존 OCR: \"{hint}\")"
@@ -163,8 +163,11 @@ def run(args):
     fallback_texts = {p["id"]: p["merged_text"].strip() for p in paragraphs}
     id_crop_pairs = [(p["id"], crop_paragraph_image(image, p["bbox"], args.crop_pad)) for p in paragraphs]
 
-    print(f"{len(paragraphs)}개 문단 인식+번역 요청 중 (모델: {args.model}, API 호출 1회)...")
-    results = recognize_and_translate_batch(client, args.model, id_crop_pairs, fallback_texts)
+    hint_str = "기존 OCR 힌트 없음" if args.no_ocr_hint else "기존 OCR 힌트 포함"
+    print(f"{len(paragraphs)}개 문단 인식+번역 요청 중 "
+          f"(모델: {args.model}, API 호출 1회, {hint_str})...")
+    results = recognize_and_translate_batch(client, args.model, id_crop_pairs, fallback_texts,
+                                            use_ocr_hint=not args.no_ocr_hint)
     print(f"  -> {len(results)}/{len(paragraphs)}개 문단 성공")
 
     fallback_count = 0
@@ -214,6 +217,10 @@ def main():
                         help="결과 JSON 저장 경로 (기본값: --json 경로에 덮어쓰기)")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
                         help=f"사용할 Gemini 모델 (기본값: {DEFAULT_MODEL})")
+    parser.add_argument("--no-ocr-hint", action="store_true",
+                        help="프롬프트에서 '참고용 기존 OCR' 힌트를 뺀다. 평소에는 힌트가 인식 "
+                             "정확도를 올려주지만, PaddleOCR과 성능을 비교할 때는 Gemini가 "
+                             "그 결과를 보고 답하는 셈이 되므로 벤치마크에서는 꺼야 한다.")
     parser.add_argument("--crop-pad", type=int, default=DEFAULT_CROP_PAD,
                         help=f"문단 bbox 주변 크롭 여유 픽셀 (기본값: {DEFAULT_CROP_PAD})")
     args = parser.parse_args()
