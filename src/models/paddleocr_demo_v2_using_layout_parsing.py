@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import argparse
+import statistics
 import numpy as np
 from PIL import Image, ImageDraw
 from paddleocr import PaddleOCR
@@ -99,7 +100,8 @@ def group_lines_by_bubbles(polys, texts, scores, bubbles):
             int(all_pts[:, 0].max()),
             int(all_pts[:, 1].max()),
         )
-        # y좌표 순으로 정렬
+        # 여기서는 임시 순서만 잡는다. 실제 읽기 순서는 회전 각도의 영향을 받지
+        # 않도록 order_lines_in_original_frame()이 원본 좌표계에서 다시 정한다.
         indices_sorted = sorted(indices, key=lambda i: (centers[i][1], centers[i][0]))
         paragraphs.append({
             'indices': indices_sorted,
@@ -163,6 +165,61 @@ def _rotated_point_to_original(pt, orig_w, orig_h, angle):
     if angle == 270:
         return (y, orig_h - x)
     raise ValueError(f"지원하지 않는 회전 각도: {angle}")
+
+
+def order_lines_in_original_frame(paragraphs, img_w, img_h, angle):
+    """문단 안의 줄 순서를 '원본 이미지 좌표계' 기준으로 다시 정한다.
+
+    OCR 결과는 PaddleOCR이 내부적으로 회전시킨 좌표계에 있고, 그 회전 각도는
+    이미지마다 다르다(0/90/270). 회전된 좌표계에서 순서를 정하면 각도에 따라
+    결과가 갈린다 - 세로쓰기가 90도로 눕혀졌을 때만 "y 오름차순"이 맞고, 0도면
+    세로 열들의 y가 거의 같아져서(실측 6px 이내) 정렬이 사실상 x 오름차순
+    (왼->오른쪽)이 되는데, 이는 일본어 세로쓰기의 정반대다.
+
+    원본 좌표계로 되돌려 놓으면 각도와 무관하게 판단할 수 있다.
+      - 줄 박스가 길쭉함(높이>폭) = 세로쓰기 -> 오른쪽 열부터 (x 내림차순)
+      - 줄 박스가 넓적함(폭>높이) = 가로쓰기 -> 위 줄부터   (y 오름차순)
+
+    판정은 문단마다 따로 하므로 한 페이지에 세로쓰기와 가로쓰기가 섞여 있어도 된다
+    (예: 세로 대사 + 가로 간판).
+
+    polys는 회전 좌표계 그대로 둔다(저장 단계에서 변환하므로). 여기서는 순서만 바꾼다.
+    """
+    for para in paragraphs:
+        if len(para["texts"]) < 2:
+            continue  # 한 줄짜리는 정할 순서가 없음
+
+        metrics = []
+        for idx, poly in enumerate(para["polys"]):
+            pts = [_rotated_point_to_original(pt, img_w, img_h, angle) for pt in poly]
+            xs = [q[0] for q in pts]
+            ys = [q[1] for q in pts]
+            w = max(xs) - min(xs)
+            h = max(ys) - min(ys)
+            metrics.append({
+                "idx": idx,
+                "cx": (min(xs) + max(xs)) / 2,
+                "cy": (min(ys) + max(ys)) / 2,
+                "ratio": h / max(1.0, w),
+            })
+
+        # 문단 전체의 중앙값으로 판정한다. 1~2글자짜리 짧은 줄은 정사각형에 가까워
+        # 혼자서는 방향을 알 수 없지만, 같은 문단의 다른 줄들이 잡아준다.
+        is_vertical = statistics.median(m["ratio"] for m in metrics) >= 1.0
+
+        if is_vertical:
+            metrics.sort(key=lambda m: (-m["cx"], m["cy"]))
+        else:
+            metrics.sort(key=lambda m: (m["cy"], m["cx"]))
+
+        order = [m["idx"] for m in metrics]
+        para["indices"] = [para["indices"][i] for i in order]
+        para["polys"] = [para["polys"][i] for i in order]
+        para["texts"] = [para["texts"][i] for i in order]
+        para["scores"] = [para["scores"][i] for i in order]
+        para["merged_text"] = " ".join(para["texts"])
+
+    return paragraphs
 
 
 def get_doc_angle(res):
@@ -384,6 +441,11 @@ def main():
 
         # 말풍선 기반 문단 그룹핑
         paragraphs = group_lines_by_bubbles(polys, texts, scores, bubbles)
+
+        # 문단 안의 줄 순서 확정. 회전 좌표계가 아니라 원본 좌표계에서 정해야
+        # 각도(0/90/270)에 관계없이 같은 결과가 나온다.
+        img_w, img_h = Image.open(args.img).size
+        paragraphs = order_lines_in_original_frame(paragraphs, img_w, img_h, angle)
 
         # 콘솔 출력
         print("\n" + "=" * 50)
