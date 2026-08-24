@@ -342,6 +342,9 @@ def main():
                              "detection 누락이 더 적어서 채택. 단, 아주 작은 반복 의성어(パチパチ류)는 "
                              "mobile보다 못 잡는 경우도 있었음)")
     parser.add_argument('--rec', type=str, default=config.RECOGNITION_MODEL_NAME)
+    parser.add_argument('--rec-dir', type=str, default=config.RECOGNITION_MODEL_DIR,
+                        help="인식 모델 가중치 폴더. 빈 문자열('')을 주면 파인튜닝본 대신 "
+                             "PaddleOCR 기본 제공 모델을 쓴다(파인튜닝 효과 비교용).")
     parser.add_argument('--img', type=str,
                         default=os.path.join(config.RAW_IMAGES_DIR, config.SAMPLE_IMAGE_FILE))
     parser.add_argument('--out', type=str,
@@ -373,7 +376,7 @@ def main():
         use_doc_unwarping=False,
         use_textline_orientation=True,
         text_detection_model_name=args.det,
-        text_recognition_model_dir=config.native_path(config.RECOGNITION_MODEL_DIR),
+        text_recognition_model_dir=(config.native_path(args.rec_dir) if args.rec_dir else None),
         text_recognition_model_name=config.RECOGNITION_MODEL_NAME,
         lang=args.lang,
     )
