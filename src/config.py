@@ -47,11 +47,11 @@ def native_path(path):
 # 단, 아주 작은 반복 의성어는 mobile이 더 잘 잡는 경우도 있었다.
 DETECTION_MODEL = "PP-OCRv5_server_det"
 
-# recognition: 일본어 만화 텍스트로 직접 파인튜닝한 v4를 사용
+# recognition: 일본어 만화 텍스트로 직접 파인튜닝한 v5를 사용 (v4 대비 실제 만화 CER 30.3% -> 18.1%)
 # PaddleOCR에는 원본 모델 이름을 알려주고, 가중치는 아래 디렉터리에서 읽는다.
 RECOGNITION_MODEL_NAME = "PP-OCRv5_mobile_rec"
 RECOGNITION_MODEL_DIR = os.path.join(
-    MODELS_DIR, "ocr", "PP-OCRv5_mobile_rec_jp_fine_tuned_v4", "complete_model"
+    MODELS_DIR, "ocr", "PP-OCRv5_mobile_rec_jp_fine_tuned_v5", "complete_model"
 )
 
 OCR_LANG = "japan"
