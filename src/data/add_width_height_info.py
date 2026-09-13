@@ -6,7 +6,6 @@ from tqdm import tqdm
 def main():
     parser = argparse.ArgumentParser(description="PaddleOCR ds_width: true 설정을 위한 가로/세로 정보 추가 스크립트")
     
-    # 기본값들을 현재 사용하시는 경로에 맞춰 설정했습니다.
     parser.add_argument("--img_dir", type=str, 
                         default="./../../data/processed/fine_tuning_answer_sheet_JParaCrawl_million/images/", 
                         help="이미지 파일들이 실제로 들어있는 폴더 경로")
