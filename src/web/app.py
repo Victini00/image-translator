@@ -26,20 +26,6 @@ sys.stderr.reconfigure(encoding="utf-8")
 넘겨서 사용자가 번역문과 위치를 직접 고칠 수 있게 한다. 고친 내용은 JSON에
 반영해서 Rendering 단계만 다시 돌려(재번역 없음) 최종 이미지를 만든다.
 
-동작 흐름:
-  1. 이미지 업로드            -> POST /api/upload
-  2. 모델 선택 후 실행         -> POST /api/run       (백그라운드 실행, job_id 반환)
-     진행 상황 폴링            -> GET  /api/progress/<job_id>
-  3. 브라우저에서 편집          -> 클라이언트 측에서만 진행
-  4. 편집 결과로 다시 렌더링    -> POST /api/rerender  (Rendering 단계만 재실행)
-  5. 결과 저장                 -> GET  /api/download/<파일명>
-
-편집 화면 미리보기는 최종 렌더링과 똑같이 보이도록, 실제 렌더링에 쓰는 폰트 파일을
-/api/font/<종류>로 서빙하고(브라우저가 @font-face로 로드), 렌더링 파라미터
-(최대/최소 폰트 크기, 줄간격, 테두리 두께)도 /api/render-config로 넘겨준다.
-줄바꿈/폰트 크기 결정 로직은 inpainting_rendering.fit_text()와 같은 규칙으로
-클라이언트(app.js)에서 다시 계산한다.
-
 Gemini API 키는 UI에서 입력하면 프로젝트 루트 .env에 GEMINI_API_KEY로 저장되고,
 다음 실행부터는 자동으로 불러와진다. .env는 .gitignore에 걸려 있어 git에 올라가지 않는다.
 """
