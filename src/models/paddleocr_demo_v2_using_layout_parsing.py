@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import argparse
@@ -222,6 +223,56 @@ def order_lines_in_original_frame(paragraphs, img_w, img_h, angle):
     return paragraphs
 
 
+# 문장 끝 말줄임표 자리에 붙는 잡기호. 인식 모델이 세로 「……」를 「…--」「：-」
+# 「""""」처럼 비슷한 기호로 뭉개서 내놓는 경우가 있다.
+# 장음 「ー」는 실제 글자(オメー 등)라서 넣지 않는다.
+_ELLIPSIS = "…"
+_LOOSE_DOTS = ".．・･"            # 「…」가 점 낱개로 쪼개져 읽힌 것
+_DOTLIKE = ":："                  # 세로 「…」를 콜론으로 읽은 것
+_QUOTES = "'\"”“’‘"              # 세로 「…」를 따옴표로 읽은 것
+_FILLER = "-－‐,，､、"            # 단독으로는 판단하지 않는 기호(물결표·장음·쉼표일 수 있음)
+_TAIL_CHARS = _ELLIPSIS + _LOOSE_DOTS + _DOTLIKE + _QUOTES + _FILLER
+_TRAILING_RUN_RE = re.compile(
+    "([" + re.escape(_TAIL_CHARS) + r"\s]*[" + re.escape(_TAIL_CHARS) + r"])([？！?!]*)\s*$"
+)
+
+
+def fix_trailing_ellipsis(text):
+    """문장 끝 말줄임표에 붙은 잡기호를 정리한다. 모델이 읽은 「…」 개수는 바꾸지 않는다.
+
+    문장 끝 기호 덩어리만 보고(끝의 「？」「！」는 떼어 두고), 아래 순서로 판단한다.
+      1. 「…」로만 되어 있으면 그대로 둔다. 「…」를 몇 개 쓰는지는 작품마다
+         다르다(블랙잭에게 안부를은 「……」, 시로바코는 「…」).
+      2. 점·따옴표 성분 없이 하이픈·쉼표뿐이면 그대로 둔다. 「〜〜」나 「ーー」를
+         잘못 읽은 것일 수 있어서 말줄임표로 단정할 수 없다.
+      3. 「…」와 잡기호가 섞여 있으면 「…」만 읽힌 개수대로 남긴다.  だけど…-- → だけど…
+      4. 「…」 없이 점 낱개가 있으면 점 3개를 「…」 1개로 묶는다.   よ ... -' → よ…
+      5. 따옴표·콜론뿐이면 원래 개수를 알 수 없으므로 「……」로 둔다.
+         ねえ + 따옴표 6개 → ねえ……  (일본 출판에서 가장 일반적인 형태)
+
+    문장 중간의 「・」(ハリー・ポッター)나 「:」(10:30)는 건드리지 않는다.
+    """
+    m = _TRAILING_RUN_RE.search(text)
+    if not m:
+        return text
+    run = re.sub(r"\s", "", m.group(1))
+
+    if set(run) <= set(_ELLIPSIS):                                        # 1
+        return text
+    if not any(c in _ELLIPSIS + _LOOSE_DOTS + _DOTLIKE + _QUOTES for c in run):  # 2
+        return text
+
+    n_ellipsis = run.count(_ELLIPSIS)
+    n_dots = sum(run.count(c) for c in _LOOSE_DOTS)
+    if n_ellipsis:                                                        # 3
+        fixed = _ELLIPSIS * n_ellipsis
+    elif n_dots:                                                          # 4
+        fixed = _ELLIPSIS * max(1, round(n_dots / 3))
+    else:                                                                 # 5
+        fixed = _ELLIPSIS * 2
+    return text[:m.start()].rstrip() + fixed + m.group(2)
+
+
 def get_doc_angle(res):
     """OCR 결과에서 문서 방향 보정 각도(0/90/180/270)를 추출한다. 못 찾으면 0."""
     dp_res = res.get('doc_preprocessor_res') if hasattr(res, 'get') else getattr(res, 'doc_preprocessor_res', None)
@@ -260,6 +311,7 @@ def save_paragraphs_json(img_path, paragraphs, out_dir, angle, mask_pad=10, json
         data["paragraphs"].append({
             "id": i,
             "merged_text": para["merged_text"],
+            "merged_text_raw": para.get("merged_text_raw", para["merged_text"]),
             "lines": [
                 {
                     "text": t,
@@ -356,6 +408,9 @@ def main():
                         help="mask_bbox에 추가할 여유 픽셀 (기본값: 10)")
     parser.add_argument('--json-name', type=str, default=None,
                         help="저장할 paragraphs json 파일 이름 (기본값: {이미지명}_paragraphs.json)")
+    parser.add_argument('--no-ellipsis-fix', action='store_true',
+                        help="문장 끝 말줄임표 정리(fix_trailing_ellipsis)를 끈다. 정리 전 원문은 "
+                             "켜져 있어도 JSON의 merged_text_raw에 남는다.")
     parser.add_argument('--rec-score-thresh', type=float, default=config.REC_SCORE_THRESH,
                         help="OCR 인식 신뢰도 임계값 - 이보다 낮은 줄은 애초에 결과에서 제외 "
                              "(배경 패턴/장식 요소를 글자로 잘못 인식하는 노이즈는 대부분 신뢰도가 "
@@ -449,6 +504,12 @@ def main():
         # 각도(0/90/270)에 관계없이 같은 결과가 나온다.
         img_w, img_h = Image.open(args.img).size
         paragraphs = order_lines_in_original_frame(paragraphs, img_w, img_h, angle)
+
+        # 문장 끝 말줄임표 정리. 원문은 merged_text_raw로 남긴다.
+        for para in paragraphs:
+            para["merged_text_raw"] = para["merged_text"]
+            if not args.no_ellipsis_fix:
+                para["merged_text"] = fix_trailing_ellipsis(para["merged_text"])
 
         # 콘솔 출력
         print("\n" + "=" * 50)
